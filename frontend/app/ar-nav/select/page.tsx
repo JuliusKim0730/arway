@@ -1,0 +1,429 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { createSession, syncUserFromGoogle, ApiError } from '@/lib/api';
+import { useNavigationStore } from '@/store/navigationStore';
+import { useAuth } from '@/hooks/useAuth';
+import { trackEvent, AnalyticsEvents } from '@/lib/analytics';
+import { useToast } from '@/hooks/useToast';
+import { ToastContainer } from '@/components/Toast';
+import { PlaceSearch, type PlaceResult } from '@/components/PlaceSearch';
+import { GoogleMap } from '@/components/GoogleMap';
+import { CurrentLocationButton } from '@/components/CurrentLocationButton';
+import { isGoogleMapsAvailable } from '@/lib/googleMaps';
+import { useCurrentLocation } from '@/hooks/useCurrentLocation';
+
+export default function ArNavSelectPage() {
+  const router = useRouter();
+  const { setSessionId, setTargetLocation } = useNavigationStore();
+  const { user, isAuthenticated, requireAuth, login } = useAuth();
+  const toast = useToast();
+  
+  const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
+  const [startLocation, setStartLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [destinationLocation, setDestinationLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({ lat: 37.5665, lng: 126.9780 }); // 서울 기본값
+  const [loading, setLoading] = useState(false);
+  const [clickedLocation, setClickedLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [showLocationOptions, setShowLocationOptions] = useState(false);
+  
+  const { currentLocation: gpsLocation, getCurrentLocation } = useCurrentLocation();
+
+  // 페이지 언마운트 시 상태 초기화
+  useEffect(() => {
+    return () => {
+      // 컴포넌트 언마운트 시 모든 상태 초기화
+      setSelectedPlace(null);
+      setStartLocation(null);
+      setDestinationLocation(null);
+      setCurrentLocation(null);
+      setClickedLocation(null);
+      setShowLocationOptions(false);
+    };
+  }, []);
+
+  // GPS 위치 가져오기
+  useEffect(() => {
+    const initLocation = async () => {
+      try {
+        await getCurrentLocation();
+      } catch (err) {
+        console.warn('초기 위치 가져오기 실패:', err);
+      }
+    };
+    initLocation();
+  }, [getCurrentLocation]);
+
+  // GPS 위치가 업데이트되면 지도 중심 업데이트
+  useEffect(() => {
+    if (gpsLocation) {
+      setCurrentLocation(gpsLocation);
+      // 시작 위치가 없으면 GPS 위치를 시작 위치로 설정
+      if (!startLocation) {
+        setStartLocation(gpsLocation);
+      }
+      setMapCenter(gpsLocation);
+    }
+  }, [gpsLocation, startLocation]);
+
+  // 장소 선택 핸들러
+  const handlePlaceSelect = (place: PlaceResult) => {
+    setSelectedPlace(place);
+    setDestinationLocation({
+      lat: place.geometry.location.lat,
+      lng: place.geometry.location.lng,
+    });
+    setMapCenter({
+      lat: place.geometry.location.lat,
+      lng: place.geometry.location.lng,
+    });
+  };
+
+  // 지도 클릭 핸들러 - 시작/도착 선택 UI 표시
+  const handleMapClick = (location: { lat: number; lng: number }) => {
+    setClickedLocation(location);
+    setShowLocationOptions(true);
+  };
+
+  // 시작 위치로 설정
+  const handleSetAsStart = () => {
+    if (clickedLocation) {
+      setStartLocation(clickedLocation);
+      setCurrentLocation(clickedLocation); // 현재 위치도 업데이트
+      setMapCenter(clickedLocation);
+      toast.success('시작 위치로 설정되었습니다.');
+      setShowLocationOptions(false);
+      setClickedLocation(null);
+    }
+  };
+
+  // 도착 위치로 설정
+  const handleSetAsDestination = () => {
+    if (clickedLocation) {
+      const clickedPlace: PlaceResult = {
+        place_id: `manual_${Date.now()}`,
+        name: '지도에서 선택한 위치',
+        formatted_address: `${clickedLocation.lat.toFixed(6)}, ${clickedLocation.lng.toFixed(6)}`,
+        geometry: {
+          location: {
+            lat: clickedLocation.lat,
+            lng: clickedLocation.lng,
+          },
+        },
+        types: [],
+      };
+      handlePlaceSelect(clickedPlace);
+      toast.success('도착 위치로 설정되었습니다.');
+      setShowLocationOptions(false);
+      setClickedLocation(null);
+    }
+  };
+
+  // 현재 위치 찾기 성공 핸들러 (useCallback으로 메모이제이션)
+  const handleLocationFound = useCallback((location: { lat: number; lng: number }) => {
+    setCurrentLocation(location);
+    // 시작 위치가 없으면 GPS 위치를 시작 위치로 설정
+    if (!startLocation) {
+      setStartLocation(location);
+    }
+    setMapCenter(location);
+    toast.success('현재 위치를 찾았습니다.');
+  }, [toast, startLocation]);
+
+  // 네비게이션 시작
+  const handleStartNavigation = async () => {
+    if (!destinationLocation) {
+      toast.error('도착 위치를 선택해주세요.');
+      return;
+    }
+
+    if (!startLocation) {
+      toast.error('시작 위치를 설정해주세요.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Google Maps API 사용 가능 여부 확인
+      if (!isGoogleMapsAvailable()) {
+        toast.warning('Google Maps API가 설정되지 않았습니다. 직선 경로로 안내됩니다.');
+      }
+
+      // 인증 확인 (이미 로그인되어 있어야 함 - 메인 페이지에서 체크)
+      if (!isAuthenticated || !user) {
+        toast.error('로그인이 필요합니다.');
+        router.push('/auth/signin');
+        setLoading(false);
+        return;
+      }
+
+      // 백엔드에 사용자 동기화
+      let backendUser;
+      try {
+        backendUser = await syncUserFromGoogle({
+          google_id: user.id,
+          email: user.email,
+          name: user.name,
+          avatar_url: user.image || undefined,
+        });
+      } catch (err) {
+        console.error('사용자 동기화 실패:', err);
+        let errorMessage = '사용자 정보를 가져올 수 없습니다.';
+        
+        if (err instanceof ApiError) {
+          if (err.statusCode === 503) {
+            errorMessage = '백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.';
+          } else if (err.message.includes('데이터베이스')) {
+            errorMessage = '데이터베이스 연결 오류입니다. 백엔드 서버를 재시작해주세요.';
+          } else {
+            errorMessage = err.message;
+          }
+        }
+        
+        toast.error(errorMessage);
+        setLoading(false);
+        return;
+      }
+      
+      // 네비게이션 세션 생성
+      const session = await createSession({
+        user_id: backendUser.id,
+        place_id: selectedPlace?.place_id,
+        place_name: selectedPlace?.name || '지도에서 선택한 위치',
+        place_address: selectedPlace?.formatted_address || `${destinationLocation.lat.toFixed(6)}, ${destinationLocation.lng.toFixed(6)}`,
+        destination_latitude: destinationLocation.lat,
+        destination_longitude: destinationLocation.lng,
+        start_latitude: startLocation.lat,
+        start_longitude: startLocation.lng,
+      });
+
+      // 세션 ID와 목적지 정보 저장
+      setSessionId(session.id);
+      setTargetLocation({
+        lat: destinationLocation.lat,
+        lng: destinationLocation.lng,
+      });
+
+      // 세션 시작 이벤트 추적
+      trackEvent(AnalyticsEvents.SESSION_STARTED, {
+        destination_id: selectedPlace?.place_id || 'unknown',
+        destination_name: selectedPlace?.name || '지도에서 선택한 위치',
+        has_google_maps: isGoogleMapsAvailable(),
+      });
+
+      // AR 네비 실행 화면으로 이동
+      router.push('/ar-nav/run');
+    } catch (err) {
+      let errorMessage = '네비게이션을 시작할 수 없습니다.';
+      
+      if (err instanceof ApiError) {
+        errorMessage = err.message;
+        
+        if (err.isOffline) {
+          errorMessage = '인터넷 연결이 없습니다. 네트워크 연결을 확인해주세요.';
+        }
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      
+      toast.error(errorMessage);
+      trackEvent(AnalyticsEvents.GPS_ERROR, { error: errorMessage });
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+      {/* 헤더 */}
+      <header className="p-4 sm:p-6 flex items-center justify-between border-b border-gray-700">
+        <div className="flex items-center">
+          <Link 
+            href="/ar-nav" 
+            className="mr-3 sm:mr-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 rounded p-1 -ml-1"
+            aria-label="뒤로 가기"
+          >
+            <span className="text-xl sm:text-2xl" aria-hidden="true">←</span>
+          </Link>
+          <h1 className="text-lg sm:text-xl font-semibold">목적지 선택</h1>
+        </div>
+        <Link
+          href="/ar-nav/history"
+          className="text-gray-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 rounded p-2"
+          aria-label="경로 히스토리"
+        >
+          <span className="text-xl sm:text-2xl" aria-hidden="true">📜</span>
+        </Link>
+      </header>
+
+      {/* 검색 및 현재 위치 */}
+      <div className="p-4 sm:p-6 space-y-3 border-b border-gray-700">
+        <PlaceSearch
+          onPlaceSelect={handlePlaceSelect}
+          currentLocation={currentLocation}
+          placeholder="장소 검색 (예: 강남역, 서울시청, 스타벅스)"
+        />
+        <CurrentLocationButton
+          onLocationFound={handleLocationFound}
+        />
+      </div>
+
+      {/* 지도 및 선택된 장소 정보 */}
+      <div className="flex-1 flex flex-col sm:flex-row min-h-0">
+        {/* 지도 영역 */}
+        <div className="flex-1 min-h-[300px] sm:min-h-0">
+          <GoogleMap
+            center={mapCenter}
+            zoom={selectedPlace ? 16 : 14}
+            markers={[
+              ...(startLocation ? [{
+                position: startLocation,
+                label: '시작',
+                title: '시작 위치',
+              }] : []),
+              ...(destinationLocation ? [{
+                position: destinationLocation,
+                label: '도착',
+                title: selectedPlace?.name || '도착 위치',
+              }] : []),
+            ]}
+            onMapClick={handleMapClick}
+            className="w-full h-full"
+          />
+        </div>
+
+        {/* 위치 정보 및 컨트롤 패널 */}
+        <div className="w-full sm:w-80 bg-gray-800 border-t sm:border-t-0 sm:border-l border-gray-700 p-4 sm:p-6 flex flex-col">
+          <div className="flex-1 space-y-4">
+            {/* 시작 위치 */}
+            <div className="p-3 bg-gray-700 rounded-lg">
+              <p className="text-xs text-gray-400 mb-1">시작 위치</p>
+              {startLocation ? (
+                <div>
+                  <p className="text-sm text-white font-medium mb-1">
+                    {startLocation.lat.toFixed(6)}, {startLocation.lng.toFixed(6)}
+                  </p>
+                  {currentLocation && Math.abs(startLocation.lat - currentLocation.lat) < 0.0001 && 
+                   Math.abs(startLocation.lng - currentLocation.lng) < 0.0001 && (
+                    <p className="text-xs text-green-400">✓ GPS 위치</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">지도에서 클릭하여 설정</p>
+              )}
+            </div>
+
+            {/* 도착 위치 */}
+            <div className="p-3 bg-gray-700 rounded-lg">
+              <p className="text-xs text-gray-400 mb-1">도착 위치</p>
+              {destinationLocation ? (
+                <div>
+                  <p className="text-sm text-white font-medium mb-1">
+                    {selectedPlace?.name || '지도에서 선택한 위치'}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {selectedPlace?.formatted_address || `${destinationLocation.lat.toFixed(6)}, ${destinationLocation.lng.toFixed(6)}`}
+                  </p>
+                  {selectedPlace?.rating && (
+                    <div className="flex items-center gap-1 mt-2">
+                      <span className="text-yellow-400 text-xs">⭐</span>
+                      <span className="text-gray-300 text-xs">
+                        {selectedPlace.rating.toFixed(1)}
+                        {selectedPlace.user_ratings_total && ` (${selectedPlace.user_ratings_total})`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">검색하거나 지도에서 클릭하여 설정</p>
+              )}
+            </div>
+          </div>
+
+          {/* 네비게이션 시작 버튼 */}
+          <button
+            onClick={handleStartNavigation}
+            disabled={loading || !startLocation || !destinationLocation}
+            className={`
+              w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 
+              text-white font-semibold py-4 px-6 rounded-lg transition-all shadow-lg hover:shadow-xl 
+              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800
+              disabled:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50
+              transform hover:scale-[1.02] active:scale-[0.98] mt-4
+            `}
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                시작 중...
+              </span>
+            ) : (
+              'AR 네비게이션 시작'
+            )}
+          </button>
+
+          {(!startLocation || !destinationLocation) && (
+            <p className="mt-2 text-xs text-yellow-400 text-center">
+              {!startLocation && !destinationLocation && '시작 위치와 도착 위치를 설정해주세요.'}
+              {!startLocation && destinationLocation && '시작 위치를 설정해주세요.'}
+              {startLocation && !destinationLocation && '도착 위치를 설정해주세요.'}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* 안내 메시지 */}
+      {!destinationLocation && (
+        <div className="p-4 sm:p-6 bg-blue-900/30 border-t border-blue-700/50">
+          <p className="text-sm text-blue-200 text-center">
+            🔍 위에서 장소를 검색하거나 지도를 클릭하여 시작/도착 위치를 설정해주세요.
+          </p>
+        </div>
+      )}
+
+      {/* 지도 클릭 시 시작/도착 선택 모달 */}
+      {showLocationOptions && clickedLocation && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg shadow-xl p-6 max-w-sm w-full">
+            <h3 className="text-lg font-bold mb-4">위치 설정</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              선택한 위치를 시작 또는 도착으로 설정하세요.
+            </p>
+            <div className="space-y-3">
+              <button
+                onClick={handleSetAsStart}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition-all"
+              >
+                📍 시작 위치로 설정
+              </button>
+              <button
+                onClick={handleSetAsDestination}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg transition-all"
+              >
+                🎯 도착 위치로 설정
+              </button>
+              <button
+                onClick={() => {
+                  setShowLocationOptions(false);
+                  setClickedLocation(null);
+                }}
+                className="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 px-4 rounded-lg transition-all"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast 알림 */}
+      <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
+    </div>
+  );
+}

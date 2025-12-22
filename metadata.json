@@ -1,0 +1,9 @@
+
+{
+  "name": "ARWay Lite MVP",
+  "description": "A mobile-first pedestrian AR navigation MVP featuring route selection, camera HUD simulation, and destination arrival feedback.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

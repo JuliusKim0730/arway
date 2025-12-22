@@ -1,0 +1,30 @@
+knowledge_base_path: "01_지식베이스"
+generated_path: "03_생성된파일"
+packages_path: "04_패키지"
+metadata_path: "02_메타데이터"
+
+mlflow:
+  tracking_uri: "http://localhost:5000"
+  experiment_prefix: "mlops_"
+
+processing:
+  auto_generate_erd: true
+  auto_generate_prd: true
+  auto_create_package: true
+
+external_sources:
+  huggingface:
+    auto_import: true
+    cache_models: true
+  github:
+    auto_clone: true
+    shallow_clone: true
+
+scheduling:
+  process_interval_hours: 1
+  cleanup_days: 30
+
+logging:
+  level: "INFO"
+  file: "mlops_tasks.log"
+

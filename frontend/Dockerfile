@@ -1,0 +1,17 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# 의존성 파일 복사 및 설치
+COPY package*.json ./
+RUN npm install
+
+# 프로젝트 파일 복사
+COPY . .
+
+# 포트 노출
+EXPOSE 3000
+
+# 개발 서버 실행
+CMD ["npm", "run", "dev"]
+
