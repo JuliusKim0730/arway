@@ -1,5 +1,9 @@
 {
   "version": 2,
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/.next",
+  "installCommand": "cd frontend && npm install",
+  "framework": "nextjs",
   "builds": [
     {
       "src": "frontend/package.json",
@@ -14,7 +18,7 @@
   ],
   "env": {
     "NEXTAUTH_URL": "@nextauth_url",
-    "NEXTAUTH_SECRET": "@nextauth_secret",
+    "NEXTAUTH_SECRET": "@nextauth_secret", 
     "GOOGLE_CLIENT_ID": "@google_client_id",
     "GOOGLE_CLIENT_SECRET": "@google_client_secret",
     "NEXT_PUBLIC_API_URL": "@next_public_api_url",
