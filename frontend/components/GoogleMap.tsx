@@ -87,10 +87,10 @@ export function GoogleMap({
       delete (window as any)[loadingKey];
     };
 
-    // 스크립트 로드
+    // 스크립트 로드 (async 속성 명시적 사용)
     const script = document.createElement('script');
     script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,marker&callback=${callbackName}`;
-    script.async = true;
+    script.async = true; // 명시적 async 설정
     script.defer = true;
     script.id = 'google-maps-script';
 
@@ -218,7 +218,7 @@ export function GoogleMap({
     }
   }, [map, center, zoom]);
 
-  // 마커 업데이트 - 기본 Marker만 사용 (AdvancedMarkerElement는 지도 ID 필요)
+  // 마커 업데이트 - 기본 Marker 사용 (안정적)
   useEffect(() => {
     if (!map || !isLoaded || !window.google || !window.google.maps) return;
 
@@ -230,17 +230,23 @@ export function GoogleMap({
     });
     markersRef.current = [];
 
-    // 새 마커 추가 (기본 Marker만 사용)
+    // 새 마커 추가 - 기본 Marker 사용 (AdvancedMarkerElement는 지도 ID 필요)
     markers.forEach((markerData) => {
       try {
-        // @ts-ignore - Marker는 deprecated이지만 여전히 작동하며, AdvancedMarkerElement는 지도 ID가 필요함
+        // @ts-ignore - Marker는 deprecated이지만 안정적으로 작동
         const marker = new window.google.maps.Marker({
           position: { lat: markerData.position.lat, lng: markerData.position.lng },
           map: map,
           title: markerData.title || markerData.label,
-          label: markerData.label,
+          label: markerData.label ? {
+            text: markerData.label,
+            color: 'white',
+            fontSize: '14px',
+            fontWeight: 'bold',
+          } : undefined,
           optimized: false, // 성능 최적화 비활성화 (정확도 우선)
         });
+        
         markersRef.current.push(marker);
       } catch (err) {
         console.warn('마커 생성 실패:', err);

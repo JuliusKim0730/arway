@@ -38,7 +38,7 @@ export function useNavComputation(
     return { distance, bearing };
   }, [currentLocation, targetLocation]);
 
-  // Google Maps API 호출 로직 개선
+  // Google Maps API 호출 로직 개선 (오프라인 모드 강화)
   const fetchGoogleRoute = useCallback(async () => {
     if (!currentLocation || !targetLocation) {
       setGoogleRoute(null);
@@ -46,7 +46,7 @@ export function useNavComputation(
       return;
     }
 
-    // Google Maps API가 사용 불가능하면 직선 경로 사용
+    // Google Maps API가 사용 불가능하면 즉시 직선 경로 사용
     if (!isGoogleMapsAvailable()) {
       console.log('Google Maps API 키가 없습니다. 직선 경로를 사용합니다.');
       setGoogleRoute(null);
@@ -67,11 +67,36 @@ export function useNavComputation(
       setCurrentStepIndex(0);
       setUseDirectRoute(false);
       setRouteError(null);
+      console.log('Google Maps 경로 계산 성공');
     } catch (error) {
-      console.warn('Google Maps API 호출 실패, 직선 경로 사용:', error);
-      setRouteError(error instanceof Error ? error.message : '경로 계산 실패');
-      setGoogleRoute(null);
-      setUseDirectRoute(true); // 실패 시 직선 경로로 폴백
+      console.warn('Google Maps API 호출 실패, 직선 경로로 폴백:', error);
+      
+      // 에러 타입에 따른 처리
+      let shouldFallback = true;
+      let errorMessage = '경로 계산 실패';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // 일시적 오류인 경우 재시도 가능
+        if (errorMessage.includes('OVER_QUERY_LIMIT') || 
+            errorMessage.includes('REQUEST_DENIED') ||
+            errorMessage.includes('네트워크')) {
+          shouldFallback = true;
+        }
+        // API 키 문제나 영구적 오류인 경우 직선 경로 강제 사용
+        else if (errorMessage.includes('API 키') || 
+                 errorMessage.includes('INVALID_REQUEST')) {
+          shouldFallback = true;
+        }
+      }
+      
+      if (shouldFallback) {
+        setRouteError(errorMessage);
+        setGoogleRoute(null);
+        setUseDirectRoute(true); // 직선 경로로 강제 폴백
+        console.log('직선 경로 모드로 전환됨');
+      }
     } finally {
       setRouteLoading(false);
     }
@@ -124,7 +149,7 @@ export function useNavComputation(
     }
   }, [findCurrentStep, currentStepIndex]);
 
-  // 메인 계산 로직 (단순화 및 안정화)
+  // 메인 계산 로직 (단순화 및 안정화) - 오프라인 모드 강화
   const { distance, bearing, relativeAngle, statusText, useGoogleMaps, currentStep, nextStep } = useMemo(() => {
     if (!currentLocation || !targetLocation || !straightLineData) {
       return {
@@ -138,8 +163,12 @@ export function useNavComputation(
       };
     }
 
-    // Google Maps 사용 여부 결정 (단순화)
-    const shouldUseGoogle = !useDirectRoute && googleRoute !== null && !routeLoading && googleRoute.steps.length > 0;
+    // Google Maps 사용 여부 결정 (오프라인 모드 고려)
+    const shouldUseGoogle = !useDirectRoute && 
+                           googleRoute !== null && 
+                           !routeLoading && 
+                           googleRoute.steps.length > 0 &&
+                           isGoogleMapsAvailable(); // API 키 재확인
     
     let dist: number;
     let bear: number;
@@ -166,7 +195,7 @@ export function useNavComputation(
       dist = remainingDistance;
       bear = currentStepData.bearing;
     } else {
-      // 직선 경로 사용 (안정적 폴백)
+      // 직선 경로 사용 (안정적 폴백 - 오프라인에서도 동작)
       dist = straightLineData.distance;
       bear = straightLineData.bearing;
     }
@@ -180,27 +209,32 @@ export function useNavComputation(
       while (relAngle < -180) relAngle += 360;
     }
 
-    // 상태 텍스트 결정 (단순화)
+    // 상태 텍스트 결정 (오프라인 모드 표시 포함)
     let status = '경로 계산 중...';
     
     if (routeLoading) {
-      status = '경로 계산 중...';
+      status = 'Google Maps 경로 계산 중...';
     } else if (dist < 5) {
-      status = '도착 근처';
+      status = '도착 근처입니다';
     } else if (shouldUseGoogle && currentStepData) {
       // Google Maps 안내 문구 사용
       status = currentStepData.instruction;
     } else if (relAngle !== null) {
-      // 직선 경로 방향 안내
+      // 직선 경로 방향 안내 (오프라인 모드)
       const absAngle = Math.abs(relAngle);
       if (absAngle < 15) {
-        status = '직진하세요';
+        status = useDirectRoute ? '직진하세요 (직선 경로)' : '직진하세요';
       } else if (absAngle < 45) {
         status = relAngle > 0 ? '약간 우회전' : '약간 좌회전';
       } else if (absAngle < 135) {
         status = relAngle > 0 ? '우회전' : '좌회전';
       } else {
         status = '뒤돌아서 가세요';
+      }
+      
+      // 오프라인 모드 표시
+      if (useDirectRoute && !isGoogleMapsAvailable()) {
+        status += ' (오프라인 모드)';
       }
     } else {
       status = '방향을 확인하세요';

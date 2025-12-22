@@ -161,77 +161,97 @@ export default function ArNavSelectPage() {
         return;
       }
 
-      // 백엔드에 사용자 동기화
-      let backendUser;
+      // 백엔드 통신 시도 (오프라인 모드 대비)
+      let backendUser = null;
+      let sessionId = null;
+      let isOfflineMode = false;
+
       try {
+        // 백엔드에 사용자 동기화 시도
         backendUser = await syncUserFromGoogle({
           google_id: user.id,
           email: user.email,
           name: user.name,
           avatar_url: user.image || undefined,
         });
+
+        // 네비게이션 세션 생성 시도
+        const session = await createSession({
+          user_id: backendUser.id,
+          place_id: selectedPlace?.place_id,
+          place_name: selectedPlace?.name || '지도에서 선택한 위치',
+          place_address: selectedPlace?.formatted_address || `${destinationLocation.lat.toFixed(6)}, ${destinationLocation.lng.toFixed(6)}`,
+          destination_latitude: destinationLocation.lat,
+          destination_longitude: destinationLocation.lng,
+          start_latitude: startLocation.lat,
+          start_longitude: startLocation.lng,
+        });
+
+        sessionId = session.id;
+        
+        toast.success('서버 연결 성공! 네비게이션을 시작합니다.');
       } catch (err) {
-        console.error('사용자 동기화 실패:', err);
-        let errorMessage = '사용자 정보를 가져올 수 없습니다.';
+        console.warn('백엔드 통신 실패, 오프라인 모드로 전환:', err);
+        isOfflineMode = true;
+        
+        let errorMessage = '서버 연결을 확인할 수 없습니다.';
         
         if (err instanceof ApiError) {
           if (err.statusCode === 503) {
-            errorMessage = '백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.';
+            errorMessage = '서버가 일시적으로 사용할 수 없습니다.';
           } else if (err.message.includes('데이터베이스')) {
-            errorMessage = '데이터베이스 연결 오류입니다. 백엔드 서버를 재시작해주세요.';
+            errorMessage = '데이터베이스 연결 오류가 발생했습니다.';
+          } else if (err.isOffline) {
+            errorMessage = '인터넷 연결을 확인해주세요.';
           } else {
             errorMessage = err.message;
           }
         }
         
-        toast.error(errorMessage);
-        setLoading(false);
-        return;
+        // 오프라인 모드 안내 토스트
+        toast.warning(`${errorMessage} 오프라인 모드로 네비게이션을 시작합니다.`);
+        
+        // 오프라인용 임시 세션 ID 생성
+        sessionId = `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      }
+
+      // 세션 ID와 목적지 정보 저장 (온라인/오프라인 모두)
+      if (sessionId) {
+        setSessionId(sessionId);
       }
       
-      // 네비게이션 세션 생성
-      const session = await createSession({
-        user_id: backendUser.id,
-        place_id: selectedPlace?.place_id,
-        place_name: selectedPlace?.name || '지도에서 선택한 위치',
-        place_address: selectedPlace?.formatted_address || `${destinationLocation.lat.toFixed(6)}, ${destinationLocation.lng.toFixed(6)}`,
-        destination_latitude: destinationLocation.lat,
-        destination_longitude: destinationLocation.lng,
-        start_latitude: startLocation.lat,
-        start_longitude: startLocation.lng,
-      });
-
-      // 세션 ID와 목적지 정보 저장
-      setSessionId(session.id);
       setTargetLocation({
         lat: destinationLocation.lat,
         lng: destinationLocation.lng,
       });
 
-      // 세션 시작 이벤트 추적
+      // 세션 시작 이벤트 추적 (오프라인에서도 로컬 저장)
       trackEvent(AnalyticsEvents.SESSION_STARTED, {
         destination_id: selectedPlace?.place_id || 'unknown',
         destination_name: selectedPlace?.name || '지도에서 선택한 위치',
         has_google_maps: isGoogleMapsAvailable(),
+        is_offline_mode: isOfflineMode,
+        session_id: sessionId,
       });
 
-      // AR 네비 실행 화면으로 이동
+      // AR 네비 실행 화면으로 이동 (오프라인 모드에서도 동작)
       router.push('/ar-nav/run');
+      
     } catch (err) {
+      // 예상치 못한 치명적 오류
       let errorMessage = '네비게이션을 시작할 수 없습니다.';
       
-      if (err instanceof ApiError) {
-        errorMessage = err.message;
-        
-        if (err.isOffline) {
-          errorMessage = '인터넷 연결이 없습니다. 네트워크 연결을 확인해주세요.';
-        }
-      } else if (err instanceof Error) {
+      if (err instanceof Error) {
         errorMessage = err.message;
       }
       
-      toast.error(errorMessage);
-      trackEvent(AnalyticsEvents.GPS_ERROR, { error: errorMessage });
+      console.error('네비게이션 시작 중 치명적 오류:', err);
+      toast.error(`${errorMessage} 잠시 후 다시 시도해주세요.`);
+      trackEvent(AnalyticsEvents.GPS_ERROR, { 
+        error: errorMessage,
+        context: 'navigation_start_critical_error'
+      });
+      
       setLoading(false);
     }
   };
