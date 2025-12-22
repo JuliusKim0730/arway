@@ -1,17 +1,20 @@
 import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
 
-// 환경 변수 검증
+// 환경 변수 검증 및 기본값 설정
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const nextAuthSecret = process.env.NEXTAUTH_SECRET;
+const nextAuthUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL;
 
-if (!googleClientId || !googleClientSecret) {
-  console.error('⚠️ Google OAuth 환경 변수가 설정되지 않았습니다.');
-}
-
-if (!nextAuthSecret) {
-  console.error('⚠️ NEXTAUTH_SECRET이 설정되지 않았습니다.');
+// 개발 환경에서만 경고 출력
+if (process.env.NODE_ENV === 'development') {
+  if (!googleClientId || !googleClientSecret) {
+    console.warn('⚠️ Google OAuth 환경 변수가 설정되지 않았습니다.');
+  }
+  if (!nextAuthSecret) {
+    console.warn('⚠️ NEXTAUTH_SECRET이 설정되지 않았습니다.');
+  }
 }
 
 const authConfig = {
@@ -23,18 +26,15 @@ const authConfig = {
   ],
   callbacks: {
     async signIn() {
-      // Google 로그인 허용
       return true;
     },
     async session({ session, token }: any) {
-      // 세션에 사용자 ID 추가
       if (session.user && token.sub) {
         session.user.id = token.sub;
       }
       return session;
     },
     async jwt({ token, user, account }: any) {
-      // JWT 토큰에 사용자 정보 추가
       if (user) {
         token.id = user.id;
       }
@@ -53,11 +53,11 @@ const authConfig = {
   },
   secret: nextAuthSecret,
   debug: process.env.NODE_ENV === 'development',
+  // Vercel 배포를 위한 trustHost 설정
+  trustHost: true,
 };
 
-// NextAuth 인스턴스 생성
 const { handlers } = NextAuth(authConfig);
 
-// Next.js App Router에서는 GET과 POST만 export 가능
 export const GET = handlers.GET;
 export const POST = handlers.POST;
