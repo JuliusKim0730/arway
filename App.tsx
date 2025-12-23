@@ -6,6 +6,7 @@ import Select from './pages/Select';
 import Run from './pages/Run';
 import Arrived from './pages/Arrived';
 import Search from './pages/Search';
+import { NavigationApp } from './frontend/components/NavigationApp';
 
 const App: React.FC = () => {
   return (
@@ -18,6 +19,8 @@ const App: React.FC = () => {
           <Route path="/ar-nav/search" element={<Search />} />
           <Route path="/ar-nav/run" element={<Run />} />
           <Route path="/ar-nav/arrived" element={<Arrived />} />
+          {/* 새로운 TMAP 네비게이션 */}
+          <Route path="/tmap-nav" element={<NavigationApp />} />
         </Routes>
       </div>
     </HashRouter>

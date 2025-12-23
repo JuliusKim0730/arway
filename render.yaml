@@ -22,3 +22,19 @@ services:
         value: INFO
       - key: CORS_ORIGINS
         value: https://arway-self.vercel.app,http://localhost:3000
+
+  - type: web
+    name: arway-frontend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    rootDir: frontend
+    envVars:
+      # TMAP API 키 (한국 네비게이션용)
+      - key: REACT_APP_TMAP_API_KEY
+        sync: false  # 대시보드에서 직접 설정
+      # Google Maps API 키 (해외 네비게이션용)  
+      - key: REACT_APP_GOOGLE_MAPS_API_KEY
+        sync: false  # 대시보드에서 직접 설정

@@ -20,13 +20,21 @@ const Home: React.FC = () => {
           </p>
         </div>
 
-        <div className="w-full pt-8">
+        <div className="w-full pt-8 space-y-4">
           <Link 
             to="/ar-nav/select" 
             className="block w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-lg active:scale-95 text-lg"
           >
             도보 AR 네비 시작
           </Link>
+          
+          <Link 
+            to="/tmap-nav" 
+            className="block w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition-all shadow-lg active:scale-95 text-lg"
+          >
+            🗺️ TMAP 네비게이션 (신규)
+          </Link>
+          
           <p className="mt-4 text-xs text-gray-400">
             * MVP 버전으로 카메라 권한이 필요할 수 있습니다.
           </p>
