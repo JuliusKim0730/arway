@@ -95,11 +95,15 @@ export function useNavComputation(
             steps: tmapRoute.instructions.map((instruction, index) => ({
               distance: Math.round(tmapRoute.distance / tmapRoute.instructions.length),
               duration: Math.round(tmapRoute.duration / tmapRoute.instructions.length),
-              instructions: instruction,
-              start_location: tmapRoute.path[index] || currentLocation,
-              end_location: tmapRoute.path[index + 1] || targetLocation
+              instruction: instruction,
+              startLocation: tmapRoute.path[index] || currentLocation,
+              endLocation: tmapRoute.path[index + 1] || targetLocation,
+              bearing: 0 // TMAP에서 방향 정보가 없으므로 기본값
             })),
-            overview_path: tmapRoute.path
+            polyline: '', // TMAP에서 polyline 정보가 없으므로 빈 문자열
+            startLocation: currentLocation,
+            endLocation: targetLocation,
+            initialBearing: 0 // 기본값
           };
           
           setGoogleRoute(convertedRoute);
