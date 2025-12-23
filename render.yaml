@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: arway-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    rootDir: backend
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://postgres.zjesefcqdxuawinbvghh:INxkh5owhddmewHT@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres
+      - key: SUPABASE_URL
+        value: https://zjesefcqdxuawinbvghh.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: sb_secret_YTpRrguQHMcagy9YJcSa9Q_zW4BCmE0
+      - key: SECRET_KEY
+        value: sb_secret_YTpRrguQHMcagy9YJcSa9Q_zW4BCmE0
+      - key: DEBUG
+        value: False
+      - key: LOG_LEVEL
+        value: INFO
+      - key: CORS_ORIGINS
+        value: https://arway-self.vercel.app,http://localhost:3000

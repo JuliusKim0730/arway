@@ -37,7 +37,7 @@ export function useGeolocationWatcher() {
     return R * c;
   }, []);
 
-  // 위치 필터링 함수 - 이상치 제거 및 스무딩
+  // 위치 필터링 함수 - ARWay 도보 최적화 버전
   const filterLocation = useCallback((newReading: LocationReading): Location | null => {
     const history = locationHistoryRef.current;
     
@@ -48,32 +48,77 @@ export function useGeolocationWatcher() {
       return newReading.location;
     }
     
-    // 정확도가 너무 낮으면 무시 (100m 이상)
-    if (newReading.accuracy > 100) {
-      console.warn('GPS 정확도가 너무 낮음:', newReading.accuracy);
+    // 적응형 정확도 임계값 (도보용으로 더 엄격하게)
+    let accuracyThreshold = 80; // 기본값을 80m로 낮춤
+    
+    // 최근 위치들의 평균 정확도로 환경 판단
+    const recentAccuracies = history.slice(-3).map(h => h.accuracy);
+    const avgAccuracy = recentAccuracies.reduce((a, b) => a + b, 0) / recentAccuracies.length;
+    
+    if (avgAccuracy > 80) {
+      // 신호가 약한 환경 (실내/지하) - 여전히 허용하지만 더 엄격
+      accuracyThreshold = 150;
+    } else if (avgAccuracy < 15) {
+      // 신호가 매우 좋은 환경 (야외 개방 공간)
+      accuracyThreshold = 50;
+    } else if (avgAccuracy < 30) {
+      // 신호가 좋은 환경 (일반 야외)
+      accuracyThreshold = 60;
+    }
+    
+    // 정확도가 너무 낮으면 무시
+    if (newReading.accuracy > accuracyThreshold) {
+      console.warn(`GPS 정확도가 너무 낮음: ${newReading.accuracy}m (임계값: ${accuracyThreshold}m)`);
       return lastValidLocationRef.current;
     }
     
-    // 이전 위치와의 거리 계산
+    // 이전 위치와의 거리 및 시간 계산
     const lastLocation = history[history.length - 1].location;
     const distance = getDistanceBetweenPoints(lastLocation, newReading.location);
-    
-    // 비현실적인 이동 거리 체크 (1초에 50m 이상 이동 시 의심)
     const timeDiff = (newReading.timestamp - history[history.length - 1].timestamp) / 1000;
-    const maxSpeed = 50; // m/s (도보 기준 매우 빠른 속도)
     
-    if (timeDiff > 0 && distance / timeDiff > maxSpeed) {
-      console.warn('비현실적인 이동 속도 감지:', distance / timeDiff, 'm/s');
-      return lastValidLocationRef.current;
+    // 적응형 속도 제한 (도보용으로 더 타이트하게)
+    let maxSpeed = 8; // 기본: 8m/s (28.8km/h) - 도보/조깅 수준
+    
+    if (timeDiff > 15) {
+      // 매우 오랜 시간 후 첫 업데이트 (15초 이상)
+      maxSpeed = 30; // 30m/s (108km/h) - 차량 이용 가능성
+    } else if (timeDiff > 8) {
+      // 오랜 시간 후 업데이트 (8초 이상)
+      maxSpeed = 15; // 15m/s (54km/h) - 자전거/대중교통
+    } else if (timeDiff > 3) {
+      // 지연된 업데이트 (3초 이상)
+      maxSpeed = 12; // 12m/s (43.2km/h) - 빠른 이동
     }
     
-    // 히스토리에 추가 (최대 10개 유지)
+    // 비현실적인 이동 속도 체크
+    if (timeDiff > 0) {
+      const currentSpeed = distance / timeDiff;
+      
+      if (currentSpeed > maxSpeed) {
+        console.warn(`비현실적인 이동 속도: ${currentSpeed.toFixed(1)}m/s (제한: ${maxSpeed}m/s)`);
+        
+        // 완전히 무시하지 않고 속도 제한 적용
+        const maxDistance = maxSpeed * timeDiff;
+        const ratio = maxDistance / distance;
+        
+        const limitedLocation = {
+          lat: lastLocation.lat + (newReading.location.lat - lastLocation.lat) * ratio,
+          lng: lastLocation.lng + (newReading.location.lng - lastLocation.lng) * ratio,
+        };
+        
+        lastValidLocationRef.current = limitedLocation;
+        return limitedLocation;
+      }
+    }
+    
+    // 히스토리에 추가 (최대 5개 유지)
     history.push(newReading);
-    if (history.length > 10) {
+    if (history.length > 5) {
       history.shift();
     }
     
-    // 최근 3개 위치의 가중 평균 계산 (최신 위치에 더 높은 가중치)
+    // 가중 평균 스무딩 (정확도 기반)
     const recentReadings = history.slice(-3);
     let totalWeight = 0;
     let weightedLat = 0;

@@ -234,24 +234,37 @@ export default function ArNavSelectPage() {
         session_id: sessionId,
       });
 
-      // AR 네비 실행 화면으로 이동 (오프라인 모드에서도 동작)
+      // 강제로 다음 페이지로 이동 (백엔드 연결 실패와 관계없이)
+      console.log('네비게이션 시작 - 다음 페이지로 이동');
       router.push('/ar-nav/run');
       
     } catch (err) {
-      // 예상치 못한 치명적 오류
-      let errorMessage = '네비게이션을 시작할 수 없습니다.';
+      // 예상치 못한 치명적 오류가 발생해도 네비게이션은 시작
+      let errorMessage = '일부 기능이 제한될 수 있지만 네비게이션을 시작합니다.';
       
       if (err instanceof Error) {
-        errorMessage = err.message;
+        console.error('네비게이션 시작 중 오류:', err.message);
       }
       
-      console.error('네비게이션 시작 중 치명적 오류:', err);
-      toast.error(`${errorMessage} 잠시 후 다시 시도해주세요.`);
-      trackEvent(AnalyticsEvents.GPS_ERROR, { 
-        error: errorMessage,
-        context: 'navigation_start_critical_error'
+      console.error('네비게이션 시작 중 오류:', err);
+      toast.warning(errorMessage);
+      
+      // 오프라인용 임시 세션 ID 생성
+      const fallbackSessionId = `fallback_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      setSessionId(fallbackSessionId);
+      setTargetLocation({
+        lat: destinationLocation.lat,
+        lng: destinationLocation.lng,
       });
       
+      trackEvent(AnalyticsEvents.GPS_ERROR, { 
+        error: errorMessage,
+        context: 'navigation_start_fallback'
+      });
+      
+      // 어떤 오류가 발생해도 네비게이션 페이지로 이동
+      router.push('/ar-nav/run');
+    } finally {
       setLoading(false);
     }
   };
