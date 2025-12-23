@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useARNavigation } from '../hooks/useARNavigation';
+import { TmapApiValidator } from '../utils/tmapApiValidator';
 
 interface Location {
   lat: number;
@@ -48,48 +49,102 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
   // TMAP API 로드
   const loadTmapAPI = useCallback(() => {
     return new Promise<void>((resolve, reject) => {
+      // 이미 로드된 경우
       if (window.Tmapv2) {
+        console.log('✅ TMAP API 이미 로드됨');
         resolve();
         return;
       }
 
-      // 환경변수에서 API 키 가져오기
-      const apiKey = process.env.REACT_APP_TMAP_API_KEY;
+      // 환경변수에서 API 키 가져오기 (Vite 방식)
+      const viteApiKey = (import.meta.env as any)?.VITE_TMAP_API_KEY;
+      const reactApiKey = process.env.REACT_APP_TMAP_API_KEY;
+      const apiKey = viteApiKey || reactApiKey;
+      
+      console.log('🔑 API 키 확인:', {
+        viteKey: viteApiKey ? '설정됨' : '설정되지 않음',
+        reactKey: reactApiKey ? '설정됨' : '설정되지 않음',
+        finalKey: apiKey ? `${apiKey.substring(0, 4)}...` : '없음'
+      });
       
       if (!apiKey || apiKey === 'YOUR_TMAP_API_KEY_HERE') {
         reject(new Error('TMAP API 키가 설정되지 않았습니다. .env.local 파일을 확인해주세요.'));
         return;
       }
 
-      console.log('🔑 TMAP API 키 확인됨, 스크립트 로딩 시작...');
+      console.log('📡 TMAP JavaScript API 스크립트 로딩 시작...');
+
+      // 기존 스크립트 제거 (중복 방지)
+      const existingScript = document.querySelector('script[src*="apis.openapi.sk.com/tmap/jsv2"]');
+      if (existingScript) {
+        console.log('🔄 기존 TMAP 스크립트 제거');
+        existingScript.remove();
+      }
 
       const script = document.createElement('script');
       script.src = `https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=${apiKey}`;
       script.async = true;
+      script.defer = true;
+      
+      // 타임아웃 설정 (30초)
+      const timeout = setTimeout(() => {
+        reject(new Error('TMAP API 로딩 타임아웃 (30초)'));
+      }, 30000);
       
       script.onload = () => {
-        if (window.Tmapv2) {
-          console.log('✅ TMAP JavaScript API 로드 완료');
-          resolve();
-        } else {
-          reject(new Error('TMAP API 로드 실패: Tmapv2 객체를 찾을 수 없습니다.'));
-        }
+        clearTimeout(timeout);
+        
+        // 로드 후 잠시 대기 (API 초기화 시간)
+        setTimeout(() => {
+          if (window.Tmapv2) {
+            console.log('✅ TMAP JavaScript API 로드 및 초기화 완료');
+            console.log('📋 사용 가능한 TMAP 객체:', Object.keys(window.Tmapv2));
+            resolve();
+          } else {
+            reject(new Error('TMAP API 로드 실패: Tmapv2 객체를 찾을 수 없습니다.'));
+          }
+        }, 1000);
       };
       
-      script.onerror = () => {
+      script.onerror = (error) => {
+        clearTimeout(timeout);
+        console.error('❌ TMAP 스크립트 로드 오류:', error);
         reject(new Error('TMAP 스크립트 로드 실패: 네트워크 오류 또는 잘못된 API 키'));
       };
       
       document.head.appendChild(script);
+      console.log('📡 TMAP 스크립트 태그 추가됨:', script.src);
     });
   }, []);
 
   // TMAP 지도 초기화
   const initializeTmapMap = useCallback(async () => {
-    if (!mapRef.current || !currentLocation) return;
+    if (!mapRef.current) {
+      console.error('❌ 지도 컨테이너 ref가 없습니다.');
+      return;
+    }
+    
+    if (!currentLocation) {
+      console.error('❌ 현재 위치가 없습니다.');
+      return;
+    }
+
+    console.log('🗺️ TMAP 지도 초기화 시작:', currentLocation);
 
     try {
+      console.log('📡 TMAP API 로딩 시작...');
       await loadTmapAPI();
+      console.log('✅ TMAP API 로딩 완료');
+      
+      // Tmapv2 객체 확인
+      if (!window.Tmapv2) {
+        throw new Error('window.Tmapv2 객체가 존재하지 않습니다.');
+      }
+      
+      console.log('🗺️ TMAP 지도 객체 생성 중...');
+      
+      // 지도 컨테이너 초기화
+      mapRef.current.innerHTML = '';
       
       const map = new window.Tmapv2.Map(mapRef.current, {
         center: new window.Tmapv2.LatLng(currentLocation.lat, currentLocation.lng),
@@ -100,40 +155,54 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
         scrollwheel: true
       });
 
+      console.log('✅ TMAP 지도 객체 생성 완료');
+
       // 현재 위치 마커 추가
-      const currentMarker = new window.Tmapv2.Marker({
-        position: new window.Tmapv2.LatLng(currentLocation.lat, currentLocation.lng),
-        icon: 'https://tmapapi.sktelecom.com/upload/tmap/marker/pin_r_m_s.png',
-        iconSize: new window.Tmapv2.Size(24, 38),
-        title: '현재 위치'
-      });
-      currentMarker.setMap(map);
+      try {
+        const currentMarker = new window.Tmapv2.Marker({
+          position: new window.Tmapv2.LatLng(currentLocation.lat, currentLocation.lng),
+          icon: 'https://tmapapi.sktelecom.com/upload/tmap/marker/pin_r_m_s.png',
+          iconSize: new window.Tmapv2.Size(24, 38),
+          title: '현재 위치'
+        });
+        currentMarker.setMap(map);
+        console.log('✅ 현재 위치 마커 추가 완료');
+      } catch (markerError) {
+        console.warn('⚠️ 마커 추가 실패:', markerError);
+      }
 
       // 지도 클릭 이벤트
       map.addListener('click', (evt: any) => {
-        const latLng = evt.latLng;
-        const location = {
-          lat: latLng.lat(),
-          lng: latLng.lng()
-        };
+        try {
+          const latLng = evt.latLng;
+          const location = {
+            lat: latLng.lat(),
+            lng: latLng.lng()
+          };
 
-        if (searchStep === 'start') {
-          setStartPoint(location);
-          addMarker(map, location, '출발지', 'start');
-          setSearchStep('end');
-        } else if (searchStep === 'end') {
-          setEndPoint(location);
-          addMarker(map, location, '도착지', 'end');
-          setSearchStep('ready');
+          console.log('🖱️ 지도 클릭:', location);
+
+          if (searchStep === 'start') {
+            setStartPoint(location);
+            addMarker(map, location, '출발지', 'start');
+            setSearchStep('end');
+          } else if (searchStep === 'end') {
+            setEndPoint(location);
+            addMarker(map, location, '도착지', 'end');
+            setSearchStep('ready');
+          }
+        } catch (clickError) {
+          console.error('❌ 지도 클릭 이벤트 오류:', clickError);
         }
       });
 
       tmapRef.current = map;
       setIsMapReady(true);
+      console.log('🎉 TMAP 지도 초기화 완료!');
       
     } catch (error) {
-      console.error('TMAP 지도 초기화 실패:', error);
-      handleNavigationError('TMAP 지도를 로드할 수 없습니다.');
+      console.error('❌ TMAP 지도 초기화 실패:', error);
+      handleNavigationError(`TMAP 지도를 로드할 수 없습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
     }
   }, [currentLocation, searchStep]);
 
@@ -217,6 +286,18 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
       return;
     }
     
+    // TMAP 로딩 실패 시 Google Maps 폴백 제안
+    if (errorMessage.includes('TMAP') && newErrorCount === 1) {
+      const useGoogleMaps = confirm(
+        `TMAP 지도 로딩에 실패했습니다.\n\n대신 Google Maps를 사용하시겠습니까?\n\n확인: Google Maps 사용\n취소: TMAP 재시도`
+      );
+      
+      if (useGoogleMaps) {
+        // Google Maps로 전환하는 로직 (향후 구현)
+        alert('Google Maps 지도는 향후 업데이트에서 지원될 예정입니다.\n현재는 TMAP만 지원됩니다.');
+      }
+    }
+    
     if (onNavigationError) {
       onNavigationError(`${errorMessage} (${newErrorCount}/3 시도)`);
     }
@@ -240,7 +321,29 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
   // 컴포넌트 마운트 시 지도 초기화
   useEffect(() => {
     if (currentLocation && !isMapReady) {
-      initializeTmapMap();
+      // API 키 검증 먼저 실행
+      const runApiValidation = async () => {
+        const viteApiKey = (import.meta.env as any)?.VITE_TMAP_API_KEY;
+        const reactApiKey = process.env.REACT_APP_TMAP_API_KEY;
+        const apiKey = viteApiKey || reactApiKey;
+
+        if (apiKey) {
+          console.log('🧪 TMAP API 검증 시작...');
+          const testResults = await TmapApiValidator.runFullTest(apiKey);
+          
+          if (testResults.keyValidation.isValid && testResults.jsApiTest.success) {
+            console.log('✅ TMAP API 검증 성공, 지도 초기화 진행');
+            initializeTmapMap();
+          } else {
+            console.error('❌ TMAP API 검증 실패:', testResults);
+            handleNavigationError(`TMAP API 검증 실패: ${testResults.jsApiTest.message}`);
+          }
+        } else {
+          handleNavigationError('TMAP API 키가 설정되지 않았습니다.');
+        }
+      };
+
+      runApiValidation();
     }
   }, [currentLocation, isMapReady, initializeTmapMap]);
 
@@ -304,12 +407,22 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
 
       {/* 지도 영역 */}
       <div className="relative">
-        <div ref={mapRef} className="w-full h-96 bg-gray-200">
+        <div 
+          ref={mapRef} 
+          className="w-full h-96 bg-gray-200 border border-gray-300 rounded-lg overflow-hidden"
+          style={{ minHeight: '400px' }}
+        >
           {!isMapReady && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                <div className="text-gray-600">지도 로딩 중...</div>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <div className="text-gray-600 font-medium">TMAP 지도 로딩 중...</div>
+                <div className="text-gray-500 text-sm mt-2">
+                  {currentLocation ? 
+                    `위치: ${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}` : 
+                    '위치 확인 중...'
+                  }
+                </div>
               </div>
             </div>
           )}
@@ -365,7 +478,7 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
 
       {/* 액션 버튼 */}
       <div className="bg-white p-4">
-        <div className="flex space-x-2">
+        <div className="flex space-x-2 mb-2">
           <button
             onClick={handleRouteSearch}
             disabled={!startPoint || !endPoint || isLoading || isNavigating || errorCount >= 3}
@@ -381,6 +494,27 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
             🔄 초기화
           </button>
         </div>
+        
+        {/* API 테스트 버튼 (개발 환경에서만) */}
+        {process.env.NODE_ENV === 'development' && (
+          <button
+            onClick={async () => {
+              const viteApiKey = (import.meta.env as any)?.VITE_TMAP_API_KEY;
+              const reactApiKey = process.env.REACT_APP_TMAP_API_KEY;
+              const apiKey = viteApiKey || reactApiKey;
+              
+              if (apiKey) {
+                console.log('🧪 수동 TMAP API 테스트 시작...');
+                await TmapApiValidator.runFullTest(apiKey);
+              } else {
+                console.error('❌ API 키가 없습니다.');
+              }
+            }}
+            className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 font-medium text-sm"
+          >
+            🧪 TMAP API 테스트 (개발용)
+          </button>
+        )}
       </div>
 
       {/* 경로 결과 */}

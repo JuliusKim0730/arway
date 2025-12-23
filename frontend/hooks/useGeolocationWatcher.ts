@@ -146,24 +146,24 @@ export function useGeolocationWatcher() {
 
   // 적응형 GPS 설정 - 정확도에 따라 동적 조정
   const getGPSOptions = useCallback((currentAccuracy: number | null) => {
-    // 정확도가 좋으면 덜 자주 업데이트, 나쁘면 더 자주 업데이트
-    let maximumAge = 2000; // 기본 2초
-    let timeout = 8000; // 기본 8초
+    // 타임아웃 문제 해결을 위해 더 관대한 설정
+    let maximumAge = 5000; // 5초로 증가 (캐시된 위치 사용)
+    let timeout = 15000; // 15초로 증가
     
     if (currentAccuracy !== null) {
       if (currentAccuracy < 10) {
         // 정확도가 매우 좋음 (10m 이하)
-        maximumAge = 3000; // 3초
-        timeout = 10000; // 10초
-      } else if (currentAccuracy > 50) {
-        // 정확도가 나쁨 (50m 이상)
-        maximumAge = 1000; // 1초
-        timeout = 5000; // 5초
+        maximumAge = 8000; // 8초
+        timeout = 20000; // 20초
+      } else if (currentAccuracy > 100) {
+        // 정확도가 매우 나쁨 (100m 이상) - 실내 환경
+        maximumAge = 10000; // 10초 (더 오래된 위치도 허용)
+        timeout = 30000; // 30초 (더 오래 기다림)
       }
     }
     
     return {
-      enableHighAccuracy: true,
+      enableHighAccuracy: false, // 배터리 절약 및 빠른 응답을 위해 false로 변경
       timeout,
       maximumAge,
     };
@@ -177,6 +177,8 @@ export function useGeolocationWatcher() {
 
     let watchId: number | null = null;
     let isMounted = true;
+    let retryCount = 0;
+    const maxRetries = 3;
 
     setIsWatching(true);
     setError(null);
@@ -184,9 +186,17 @@ export function useGeolocationWatcher() {
     const startWatch = () => {
       const options = getGPSOptions(accuracy);
       
+      console.log(`📍 GPS 시도 ${retryCount + 1}/${maxRetries + 1}:`, options);
+      
       watchId = navigator.geolocation.watchPosition(
         (position) => {
           if (!isMounted) return;
+          
+          console.log('✅ GPS 위치 수신 성공:', {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            accuracy: position.coords.accuracy
+          });
           
           const newReading: LocationReading = {
             location: {
@@ -204,6 +214,7 @@ export function useGeolocationWatcher() {
             setCurrentLocation(filteredLocation);
             setAccuracy(position.coords.accuracy);
             setError(null);
+            retryCount = 0; // 성공 시 재시도 카운트 리셋
           }
         },
         (err) => {
@@ -214,26 +225,43 @@ export function useGeolocationWatcher() {
           switch (err.code) {
             case err.PERMISSION_DENIED:
               errorMessage = '위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.';
-              break;
+              setError(errorMessage);
+              setIsWatching(false);
+              return; // 권한 거부는 재시도하지 않음
+              
             case err.POSITION_UNAVAILABLE:
               errorMessage = '위치 정보를 사용할 수 없습니다. GPS가 켜져 있는지 확인해주세요.';
               break;
+              
             case err.TIMEOUT:
-              errorMessage = '위치 요청 시간이 초과되었습니다. 다시 시도해주세요.';
-              // 타임아웃 시 재시도
-              setTimeout(() => {
-                if (isMounted) {
-                  console.log('GPS 타임아웃 후 재시도...');
-                  startWatch();
-                }
-              }, 2000);
-              return;
+              errorMessage = `GPS 신호 수신 시간 초과 (${retryCount + 1}/${maxRetries + 1})`;
+              console.warn(`⏰ GPS 타임아웃 (시도 ${retryCount + 1}):`, err);
+              break;
+              
             default:
-              errorMessage = err.message || '알 수 없는 오류가 발생했습니다.';
+              errorMessage = err.message || '알 수 없는 GPS 오류가 발생했습니다.';
           }
           
-          setError(errorMessage);
-          setIsWatching(false);
+          retryCount++;
+          
+          if (retryCount <= maxRetries) {
+            console.log(`🔄 GPS 재시도 ${retryCount}/${maxRetries} (${Math.pow(2, retryCount)}초 후)`);
+            setError(`${errorMessage} - ${retryCount}/${maxRetries} 재시도 중...`);
+            
+            // 지수 백오프로 재시도 (2초, 4초, 8초)
+            setTimeout(() => {
+              if (isMounted) {
+                if (watchId !== null) {
+                  navigator.geolocation.clearWatch(watchId);
+                }
+                startWatch();
+              }
+            }, Math.pow(2, retryCount) * 1000);
+          } else {
+            console.error('❌ GPS 최대 재시도 횟수 초과');
+            setError(`${errorMessage} - 최대 재시도 횟수를 초과했습니다. 야외로 이동하거나 페이지를 새로고침해주세요.`);
+            setIsWatching(false);
+          }
         },
         options
       );

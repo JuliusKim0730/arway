@@ -14,18 +14,36 @@ export class DebugHelper {
 
     console.group('🔍 환경변수 상태 확인');
     
-    const tmapKey = process.env.REACT_APP_TMAP_API_KEY;
-    const googleKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+    // Vite 환경변수 확인
+    const viteTmapKey = (import.meta.env as any)?.VITE_TMAP_API_KEY;
+    const viteGoogleKey = (import.meta.env as any)?.VITE_GOOGLE_MAPS_API_KEY;
     
-    console.log('TMAP API 키:', tmapKey ? '✅ 설정됨' : '❌ 설정되지 않음');
-    console.log('Google Maps API 키:', googleKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    // React 환경변수 확인 (호환성)
+    const reactTmapKey = process.env.REACT_APP_TMAP_API_KEY;
+    const reactGoogleKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
     
-    if (tmapKey) {
-      console.log('TMAP 키 형식:', tmapKey.startsWith('l7xx') ? '✅ 올바름' : '⚠️ 확인 필요');
+    console.log('=== Vite 환경변수 ===');
+    console.log('VITE_TMAP_API_KEY:', viteTmapKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    console.log('VITE_GOOGLE_MAPS_API_KEY:', viteGoogleKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    
+    console.log('=== React 환경변수 (호환성) ===');
+    console.log('REACT_APP_TMAP_API_KEY:', reactTmapKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    console.log('REACT_APP_GOOGLE_MAPS_API_KEY:', reactGoogleKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    
+    // 최종 사용될 키
+    const finalTmapKey = viteTmapKey || reactTmapKey;
+    const finalGoogleKey = viteGoogleKey || reactGoogleKey;
+    
+    console.log('=== 최종 사용 키 ===');
+    console.log('TMAP API 키:', finalTmapKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    console.log('Google Maps API 키:', finalGoogleKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    
+    if (finalTmapKey) {
+      console.log('TMAP 키 형식:', finalTmapKey.startsWith('v6Sh') ? '✅ 올바름' : '⚠️ 확인 필요');
     }
     
-    if (googleKey) {
-      console.log('Google 키 형식:', googleKey.startsWith('AIza') ? '✅ 올바름' : '⚠️ 확인 필요');
+    if (finalGoogleKey) {
+      console.log('Google 키 형식:', finalGoogleKey.startsWith('AIza') ? '✅ 올바름' : '⚠️ 확인 필요');
     }
     
     console.groupEnd();

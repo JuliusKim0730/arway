@@ -41,13 +41,24 @@ export class ARNavigationManager {
   private lastError: string | null = null;
 
   constructor(tmapApiKey?: string) {
-    // React 환경에서 환경변수 접근 방법 수정
+    // Vite 환경에서 환경변수 접근 방법 (import.meta.env 사용)
+    const viteTmapKey = import.meta.env?.VITE_TMAP_API_KEY;
+    const reactTmapKey = process.env.REACT_APP_TMAP_API_KEY;
+    
     this.tmapApiKey = tmapApiKey || 
-                     process.env.REACT_APP_TMAP_API_KEY || 
+                     viteTmapKey ||
+                     reactTmapKey ||
                      (window as any).__TMAP_API_KEY__ || 
                      '';
     
-    console.log('🔑 TMAP API 키 상태:', this.tmapApiKey ? '설정됨' : '설정되지 않음');
+    console.log('🔑 환경변수 디버깅:');
+    console.log('- import.meta.env.VITE_TMAP_API_KEY:', viteTmapKey ? '설정됨' : '설정되지 않음');
+    console.log('- process.env.REACT_APP_TMAP_API_KEY:', reactTmapKey ? '설정됨' : '설정되지 않음');
+    console.log('- 실제 Vite 키 값:', viteTmapKey);
+    console.log('- 실제 React 키 값:', reactTmapKey);
+    console.log('- 최종 tmapApiKey:', this.tmapApiKey ? '설정됨' : '설정되지 않음');
+    console.log('- 키 길이:', this.tmapApiKey ? this.tmapApiKey.length : 0);
+    console.log('- 키 시작 문자:', this.tmapApiKey ? this.tmapApiKey.substring(0, 4) : 'N/A');
     
     // 개발 환경에서 시스템 상태 체크
     DebugHelper.checkSystemStatus();
@@ -63,13 +74,24 @@ export class ARNavigationManager {
    * 한국의 대략적인 위경도 범위로 판단
    */
   checkIsKorea(lat: number, lng: number): boolean {
+    console.log(`🌍 위치 확인 중: 위도 ${lat.toFixed(6)}, 경도 ${lng.toFixed(6)}`);
+    
     // 한국 본토 + 제주도를 포함한 범위
     const koreaMainland = lat >= 33.0 && lat <= 38.9 && lng >= 124.5 && lng <= 131.9;
     
     // 독도 포함 (동해 영역)
     const dokdo = lat >= 37.2 && lat <= 37.3 && lng >= 131.8 && lng <= 131.9;
     
-    return koreaMainland || dokdo;
+    const isKorea = koreaMainland || dokdo;
+    
+    console.log(`📍 위치 분석:
+    - 위도 범위 (33.0~38.9): ${lat >= 33.0 && lat <= 38.9 ? '✅' : '❌'} (현재: ${lat})
+    - 경도 범위 (124.5~131.9): ${lng >= 124.5 && lng <= 131.9 ? '✅' : '❌'} (현재: ${lng})
+    - 한국 본토: ${koreaMainland ? '✅' : '❌'}
+    - 독도 영역: ${dokdo ? '✅' : '❌'}
+    - 최종 결과: ${isKorea ? '🇰🇷 한국 (TMAP 사용)' : '🌍 해외 (Google Maps 사용)'}`);
+    
+    return isKorea;
   }
 
   /**
@@ -78,6 +100,10 @@ export class ARNavigationManager {
    * 에러 추적 및 재시도 로직 포함
    */
   async getDirections(origin: Location, destination: Location): Promise<NavigationRoute | null> {
+    console.log('🚀 경로 검색 시작');
+    console.log('출발지:', origin);
+    console.log('도착지:', destination);
+    
     const isKorea = this.checkIsKorea(origin.lat, origin.lng);
     this.isKorea = isKorea;
 
@@ -85,12 +111,21 @@ export class ARNavigationManager {
     DebugHelper.logLocationInfo(origin);
     DebugHelper.startPerformanceMeasure('경로 검색');
 
+    console.log(`🎯 선택된 API: ${isKorea ? '🇰🇷 TMAP' : '🌍 Google Maps'}`);
+    console.log(`🔑 TMAP API 키 상태: ${this.tmapApiKey ? '설정됨' : '❌ 설정되지 않음'}`);
+
     try {
       let result: NavigationRoute | null = null;
 
       if (isKorea) {
         console.log("🇰🇷 국내 위치 감지: TMAP API 기반 경로를 요청합니다.");
-        result = await this.getTmapWalkingRoute(origin, destination);
+        
+        if (!this.tmapApiKey) {
+          console.error('❌ TMAP API 키가 없어서 Google Maps로 폴백합니다.');
+          result = await this.getGoogleRoute(origin, destination);
+        } else {
+          result = await this.getTmapWalkingRoute(origin, destination);
+        }
       } else {
         console.log("🌍 해외 위치 감지: Google Maps API 기반 경로를 요청합니다.");
         result = await this.getGoogleRoute(origin, destination);
@@ -305,7 +340,9 @@ export class ARNavigationManager {
    * 현재 사용 중인 네비게이션 서비스 확인
    */
   getCurrentService(): 'TMAP' | 'Google Maps' {
-    return this.isKorea ? 'TMAP' : 'Google Maps';
+    const service = this.isKorea ? 'TMAP' : 'Google Maps';
+    console.log(`🎯 현재 서비스: ${service} (한국 위치: ${this.isKorea})`);
+    return service;
   }
 
   /**

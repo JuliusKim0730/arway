@@ -81,10 +81,15 @@ export const DebugPanel: React.FC = () => {
               <div className="text-gray-600">
                 {currentLocation ? (
                   <>
-                    위도: {currentLocation.lat.toFixed(4)}<br/>
-                    경도: {currentLocation.lng.toFixed(4)}<br/>
+                    위도: {currentLocation.lat.toFixed(6)}<br/>
+                    경도: {currentLocation.lng.toFixed(6)}<br/>
                     지역: {isKorea ? '🇰🇷 한국' : '🌍 해외'}<br/>
-                    서비스: {currentService || '미설정'}
+                    서비스: {currentService || '미설정'}<br/>
+                    <div className="text-xs mt-1 text-blue-600">
+                      한국 범위 체크:<br/>
+                      위도(33-38.9): {currentLocation.lat >= 33.0 && currentLocation.lat <= 38.9 ? '✅' : '❌'}<br/>
+                      경도(124.5-131.9): {currentLocation.lng >= 124.5 && currentLocation.lng <= 131.9 ? '✅' : '❌'}
+                    </div>
                   </>
                 ) : (
                   '위치 정보 없음'

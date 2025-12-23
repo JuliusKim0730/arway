@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { TmapNavigationComponent } from './TmapNavigationComponent';
 import { useGeolocationWatcher } from '../hooks/useGeolocationWatcher';
 import { DebugPanel } from './DebugPanel';
+import { LocationTester } from './LocationTester';
+import { ManualLocationInput } from './ManualLocationInput';
 
 interface NavigationRoute {
   path: Array<{ lat: number; lng: number }>;
@@ -16,6 +18,7 @@ export const NavigationApp: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('main');
   const [currentRoute, setCurrentRoute] = useState<NavigationRoute | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [manualLocation, setManualLocation] = useState<{ lat: number; lng: number } | null>(null);
   
   const { 
     currentLocation, 
@@ -25,12 +28,22 @@ export const NavigationApp: React.FC = () => {
     requestPermission 
   } = useGeolocationWatcher();
 
+  // 수동 위치가 설정되면 그것을 우선 사용, 없으면 GPS 위치 사용
+  const effectiveLocation = manualLocation || currentLocation;
+
   // 위치 권한 요청
   useEffect(() => {
-    if (!currentLocation && !locationError) {
+    if (!effectiveLocation && !locationError) {
       requestPermission();
     }
-  }, [currentLocation, locationError, requestPermission]);
+  }, [effectiveLocation, locationError, requestPermission]);
+
+  // 수동 위치 설정 핸들러
+  const handleManualLocationSet = (location: { lat: number; lng: number }) => {
+    setManualLocation(location);
+    setError(null);
+    console.log('📍 수동 위치 설정됨:', location);
+  };
 
   // 네비게이션 시작
   const handleNavigationStart = (route: NavigationRoute) => {
@@ -53,8 +66,8 @@ export const NavigationApp: React.FC = () => {
 
   // 네비게이션 화면으로 이동
   const handleStartNavigation = () => {
-    if (!currentLocation) {
-      setError('위치 정보를 확인할 수 없습니다. GPS를 켜주세요.');
+    if (!effectiveLocation) {
+      setError('위치 정보를 확인할 수 없습니다. GPS를 켜거나 수동으로 위치를 설정해주세요.');
       return;
     }
     setAppState('navigation');
@@ -85,30 +98,46 @@ export const NavigationApp: React.FC = () => {
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">📍 현재 위치 상태</h2>
           
-          {locationError ? (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          {locationError && !manualLocation ? (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
               <div className="flex items-center text-red-800">
                 <span className="mr-2">❌</span>
-                <span className="font-medium">위치 오류</span>
+                <span className="font-medium">GPS 오류</span>
               </div>
               <div className="mt-2 text-red-700 text-sm">{locationError}</div>
-              <button
-                onClick={requestPermission}
-                className="mt-3 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 text-sm"
-              >
-                위치 권한 재요청
-              </button>
+              <div className="mt-3 flex space-x-2">
+                <button
+                  onClick={requestPermission}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 text-sm"
+                >
+                  GPS 재시도
+                </button>
+                <ManualLocationInput
+                  onLocationSet={handleManualLocationSet}
+                  currentLocation={effectiveLocation}
+                />
+              </div>
             </div>
-          ) : currentLocation ? (
+          ) : effectiveLocation ? (
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <div className="flex items-center text-green-800 mb-2">
                 <span className="mr-2">✅</span>
-                <span className="font-medium">위치 확인됨</span>
+                <span className="font-medium">
+                  {manualLocation ? '수동 위치 설정됨' : '위치 확인됨'}
+                </span>
               </div>
               <div className="text-sm text-green-700">
-                <div>위도: {currentLocation.lat.toFixed(6)}</div>
-                <div>경도: {currentLocation.lng.toFixed(6)}</div>
-                {accuracy && <div>정확도: {Math.round(accuracy)}m</div>}
+                <div>위도: {effectiveLocation.lat.toFixed(6)}</div>
+                <div>경도: {effectiveLocation.lng.toFixed(6)}</div>
+                {accuracy && !manualLocation && <div>정확도: {Math.round(accuracy)}m</div>}
+                {manualLocation && (
+                  <div className="mt-2">
+                    <ManualLocationInput
+                      onLocationSet={handleManualLocationSet}
+                      currentLocation={effectiveLocation}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -119,6 +148,12 @@ export const NavigationApp: React.FC = () => {
               </div>
               <div className="mt-2 text-yellow-700 text-sm">
                 GPS 신호를 받고 있습니다. 잠시만 기다려주세요.
+              </div>
+              <div className="mt-3">
+                <ManualLocationInput
+                  onLocationSet={handleManualLocationSet}
+                  currentLocation={effectiveLocation}
+                />
               </div>
             </div>
           )}
@@ -139,10 +174,10 @@ export const NavigationApp: React.FC = () => {
         <div className="text-center">
           <button
             onClick={handleStartNavigation}
-            disabled={!currentLocation}
+            disabled={!effectiveLocation}
             className="bg-blue-600 text-white px-8 py-4 rounded-xl hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-lg shadow-lg transform transition hover:scale-105"
           >
-            {currentLocation ? '🚀 네비게이션 시작' : '📍 위치 확인 중...'}
+            {effectiveLocation ? '🚀 네비게이션 시작' : '📍 위치 확인 중...'}
           </button>
         </div>
 
@@ -240,6 +275,7 @@ export const NavigationApp: React.FC = () => {
         <>
           {renderMainScreen()}
           <DebugPanel />
+          <LocationTester />
         </>
       );
     
@@ -252,6 +288,7 @@ export const NavigationApp: React.FC = () => {
             onBackToMain={handleBackToMain}
           />
           <DebugPanel />
+          <LocationTester />
         </>
       );
     
@@ -268,6 +305,7 @@ export const NavigationApp: React.FC = () => {
         <>
           {renderMainScreen()}
           <DebugPanel />
+          <LocationTester />
         </>
       );
   }
