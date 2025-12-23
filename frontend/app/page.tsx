@@ -30,7 +30,7 @@ export default function Home() {
     }
   };
 
-  // 로딩 중 표시
+  // 로딩 중 표시 - 타임아웃 추가
   if (status === 'loading') {
     return (
       <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900">
@@ -40,6 +40,16 @@ export default function Home() {
           </h1>
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-400">로그인 상태 확인 중...</p>
+          
+          {/* 임시 우회 버튼 추가 */}
+          <div className="mt-8">
+            <button
+              onClick={() => router.push('/ar-nav')}
+              className="text-blue-400 hover:text-blue-300 underline text-sm"
+            >
+              로그인 없이 계속하기 →
+            </button>
+          </div>
         </div>
       </main>
     );
