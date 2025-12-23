@@ -26,18 +26,15 @@ export default function ArNavHistoryPage() {
 
   const loadHistory = async () => {
     try {
-      const user = getCurrentUser();
-      if (!user) {
-        // 사용자가 없으면 익명 사용자 생성
-        await ensureUser();
-        await loadHistory();
-        return;
-      }
-
+      setLoading(true);
+      
+      // 사용자 정보 확인 및 생성
+      const user = await ensureUser();
+      
       const status = filter === 'completed' ? 'completed' : undefined;
       const data = await fetchUserSessions(user.id, 50, status);
       setSessions(data);
-      setLoading(false);
+      setError(null);
     } catch (err) {
       let errorMessage = '히스토리를 불러오는데 실패했습니다.';
       
@@ -45,13 +42,21 @@ export default function ArNavHistoryPage() {
         errorMessage = err.message;
         
         if (err.isOffline) {
-          errorMessage = '인터넷 연결이 없습니다. 네트워크 연결을 확인해주세요.';
+          errorMessage = '오프라인 모드입니다. 네트워크 연결을 확인해주세요.';
         }
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
       }
       
+      console.warn('히스토리 로딩 실패:', err);
       setError(errorMessage);
+      
+      // 오프라인이거나 서버 연결 실패 시 빈 배열로 설정
+      if (err instanceof ApiError && err.isOffline) {
+        setSessions([]);
+      }
+    } finally {
       setLoading(false);
-      toast.error(errorMessage);
     }
   };
 

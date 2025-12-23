@@ -26,6 +26,24 @@ export function useNavComputation(
 
   // 위치 기반 서비스 선택
   const determineService = useCallback((location: Location) => {
+    // 사용자가 수동으로 선택한 서비스 확인
+    const preferredService = typeof window !== 'undefined' ? localStorage.getItem('preferredService') : null;
+    
+    if (preferredService === 'TMAP') {
+      console.log('🇰🇷 사용자 선택: TMAP 강제 사용');
+      setIsKorea(true);
+      setCurrentService('TMAP');
+      return 'TMAP';
+    }
+    
+    if (preferredService === 'Google Maps') {
+      console.log('🌍 사용자 선택: Google Maps 강제 사용');
+      setIsKorea(false);
+      setCurrentService('Google Maps');
+      return 'Google Maps';
+    }
+    
+    // 자동 선택 (기존 로직)
     const koreaCheck = arNavigationManager.checkIsKorea(location.lat, location.lng);
     setIsKorea(koreaCheck);
     
