@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { getDistance, getRhumbLineBearing } from 'geolib';
 import { getDirections, isGoogleMapsAvailable, type GoogleMapsRoute, type RouteStep } from '@/lib/googleMaps';
+import { arNavigationManager } from '@/services/ARNavigationManager';
 
 interface Location {
   lat: number;
@@ -8,7 +9,7 @@ interface Location {
 }
 
 // 안정적인 네비게이션 계산을 위한 개선된 훅
-// Google Maps API 실패 시 직선 경로로 안정적 폴백
+// 한국: TMAP API, 해외: Google Maps API, 실패 시: 직선 경로 폴백
 
 export function useNavComputation(
   currentLocation: Location | null,
@@ -20,6 +21,30 @@ export function useNavComputation(
   const [routeError, setRouteError] = useState<string | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [useDirectRoute, setUseDirectRoute] = useState(false); // 직선 경로 강제 사용 플래그
+  const [currentService, setCurrentService] = useState<'TMAP' | 'Google Maps' | 'Direct'>('Direct');
+  const [isKorea, setIsKorea] = useState(false);
+
+  // 위치 기반 서비스 선택
+  const determineService = useCallback((location: Location) => {
+    const koreaCheck = arNavigationManager.checkIsKorea(location.lat, location.lng);
+    setIsKorea(koreaCheck);
+    
+    // TMAP API 키 확인
+    const nextTmapKey = process.env.NEXT_PUBLIC_TMAP_API_KEY;
+    const reactTmapKey = process.env.REACT_APP_TMAP_API_KEY;
+    const hasTmapKey = !!(nextTmapKey || reactTmapKey);
+    
+    if (koreaCheck && hasTmapKey) {
+      setCurrentService('TMAP');
+      return 'TMAP';
+    } else if (!koreaCheck && isGoogleMapsAvailable()) {
+      setCurrentService('Google Maps');
+      return 'Google Maps';
+    } else {
+      setCurrentService('Direct');
+      return 'Direct';
+    }
+  }, []);
 
   // 직선 거리 및 방향 계산 (항상 사용 가능한 폴백)
   const straightLineData = useMemo(() => {
@@ -38,19 +63,10 @@ export function useNavComputation(
     return { distance, bearing };
   }, [currentLocation, targetLocation]);
 
-  // Google Maps API 호출 로직 개선 (오프라인 모드 강화)
-  const fetchGoogleRoute = useCallback(async () => {
+  // 통합 경로 계산 (TMAP + Google Maps + 직선 경로)
+  const fetchRoute = useCallback(async () => {
     if (!currentLocation || !targetLocation) {
       setGoogleRoute(null);
-      setRouteLoading(false);
-      return;
-    }
-
-    // Google Maps API가 사용 불가능하면 즉시 직선 경로 사용
-    if (!isGoogleMapsAvailable()) {
-      console.log('Google Maps API 키가 없습니다. 직선 경로를 사용합니다.');
-      setGoogleRoute(null);
-      setUseDirectRoute(true);
       setRouteLoading(false);
       return;
     }
@@ -61,48 +77,70 @@ export function useNavComputation(
     setRouteLoading(true);
     setRouteError(null);
     
+    // 서비스 결정
+    const selectedService = determineService(currentLocation);
+    console.log(`🎯 선택된 서비스: ${selectedService} (한국: ${isKorea})`);
+    
     try {
-      const route = await getDirections(currentLocation, targetLocation, 'walking');
-      setGoogleRoute(route);
-      setCurrentStepIndex(0);
-      setUseDirectRoute(false);
-      setRouteError(null);
-      console.log('Google Maps 경로 계산 성공');
+      if (selectedService === 'TMAP') {
+        // TMAP API 사용
+        console.log('🇰🇷 TMAP API로 경로 계산 시작');
+        const tmapRoute = await arNavigationManager.getDirections(currentLocation, targetLocation);
+        
+        if (tmapRoute) {
+          // TMAP 결과를 Google Maps 형식으로 변환
+          const convertedRoute: GoogleMapsRoute = {
+            distance: tmapRoute.distance,
+            duration: tmapRoute.duration,
+            steps: tmapRoute.instructions.map((instruction, index) => ({
+              distance: Math.round(tmapRoute.distance / tmapRoute.instructions.length),
+              duration: Math.round(tmapRoute.duration / tmapRoute.instructions.length),
+              instructions: instruction,
+              start_location: tmapRoute.path[index] || currentLocation,
+              end_location: tmapRoute.path[index + 1] || targetLocation
+            })),
+            overview_path: tmapRoute.path
+          };
+          
+          setGoogleRoute(convertedRoute);
+          setCurrentStepIndex(0);
+          setUseDirectRoute(false);
+          console.log('✅ TMAP 경로 계산 성공');
+          return;
+        }
+      } else if (selectedService === 'Google Maps') {
+        // Google Maps API 사용
+        console.log('🌍 Google Maps API로 경로 계산 시작');
+        const route = await getDirections(currentLocation, targetLocation, 'walking');
+        setGoogleRoute(route);
+        setCurrentStepIndex(0);
+        setUseDirectRoute(false);
+        console.log('✅ Google Maps 경로 계산 성공');
+        return;
+      }
+      
+      // 직선 경로 폴백
+      throw new Error('API 서비스를 사용할 수 없습니다');
+      
     } catch (error) {
-      console.warn('Google Maps API 호출 실패, 직선 경로로 폴백:', error);
+      console.warn(`${selectedService} API 호출 실패, 직선 경로로 폴백:`, error);
       
-      // 에러 타입에 따른 처리
-      let shouldFallback = true;
       let errorMessage = '경로 계산 실패';
-      
       if (error instanceof Error) {
         errorMessage = error.message;
-        
-        // 일시적 오류인 경우 재시도 가능
-        if (errorMessage.includes('OVER_QUERY_LIMIT') || 
-            errorMessage.includes('REQUEST_DENIED') ||
-            errorMessage.includes('네트워크')) {
-          shouldFallback = true;
-        }
-        // API 키 문제나 영구적 오류인 경우 직선 경로 강제 사용
-        else if (errorMessage.includes('API 키') || 
-                 errorMessage.includes('INVALID_REQUEST')) {
-          shouldFallback = true;
-        }
       }
       
-      if (shouldFallback) {
-        setRouteError(errorMessage);
-        setGoogleRoute(null);
-        setUseDirectRoute(true); // 직선 경로로 강제 폴백
-        console.log('직선 경로 모드로 전환됨');
-      }
+      setRouteError(errorMessage);
+      setGoogleRoute(null);
+      setUseDirectRoute(true);
+      setCurrentService('Direct');
+      console.log('📍 직선 경로 모드로 전환됨');
     } finally {
       setRouteLoading(false);
     }
-  }, [currentLocation, targetLocation, routeLoading]);
+  }, [currentLocation, targetLocation, routeLoading, determineService]);
 
-  // Google Maps API 호출 (디바운싱 적용)
+  // 통합 경로 호출 (디바운싱 적용)
   useEffect(() => {
     if (!currentLocation || !targetLocation) {
       setGoogleRoute(null);
@@ -112,11 +150,11 @@ export function useNavComputation(
 
     // 위치 변경 시 500ms 디바운싱
     const timeoutId = setTimeout(() => {
-      fetchGoogleRoute();
+      fetchRoute();
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [currentLocation, targetLocation, fetchGoogleRoute]);
+  }, [currentLocation, targetLocation, fetchRoute]);
 
   // 현재 위치에 가장 가까운 경로 단계 찾기 (단순화된 로직)
   const findCurrentStep = useCallback(() => {
@@ -262,6 +300,9 @@ export function useNavComputation(
     googleRoute,
     currentStep,
     nextStep,
+    currentService,
+    isKorea,
+    useDirectRoute,
   };
 }
 

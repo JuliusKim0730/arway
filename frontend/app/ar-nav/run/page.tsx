@@ -35,6 +35,9 @@ export default function ArNavRunPage() {
     googleRoute,
     currentStep,
     nextStep,
+    currentService,
+    isKorea,
+    useDirectRoute,
   } = useNavComputation(
     currentLocation,
     targetLocation,
@@ -368,9 +371,20 @@ export default function ArNavRunPage() {
             </div>
             <p className="text-xs sm:text-sm text-gray-300 mt-1" aria-live="polite">
               {statusText}
-              {useGoogleMaps && (
+              {/* 서비스 표시 개선 */}
+              {currentService === 'TMAP' && (
+                <span className="ml-2 text-xs text-green-400" aria-label="TMAP 경로 사용">
+                  🇰🇷 TMAP
+                </span>
+              )}
+              {currentService === 'Google Maps' && (
                 <span className="ml-2 text-xs text-blue-400" aria-label="Google Maps 경로 사용">
-                  🗺️
+                  🌍 Google Maps
+                </span>
+              )}
+              {currentService === 'Direct' && (
+                <span className="ml-2 text-xs text-orange-400" aria-label="직선 경로 사용">
+                  📍 직선 경로
                 </span>
               )}
               {routeLoading && (
