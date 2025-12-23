@@ -198,3 +198,5 @@ export const ARNavigationDemo: React.FC = () => {
     </div>
   );
 };
+
+export default ARNavigationDemo;

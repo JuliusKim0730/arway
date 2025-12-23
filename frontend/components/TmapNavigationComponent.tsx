@@ -56,13 +56,13 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
         return;
       }
 
-      // 환경변수에서 API 키 가져오기 (Vite 방식)
-      const viteApiKey = (import.meta.env as any)?.VITE_TMAP_API_KEY;
+      // 환경변수에서 API 키 가져오기 (Next.js 방식)
+      const nextApiKey = process.env.NEXT_PUBLIC_TMAP_API_KEY;
       const reactApiKey = process.env.REACT_APP_TMAP_API_KEY;
-      const apiKey = viteApiKey || reactApiKey;
+      const apiKey = nextApiKey || reactApiKey;
       
       console.log('🔑 API 키 확인:', {
-        viteKey: viteApiKey ? '설정됨' : '설정되지 않음',
+        nextKey: nextApiKey ? '설정됨' : '설정되지 않음',
         reactKey: reactApiKey ? '설정됨' : '설정되지 않음',
         finalKey: apiKey ? `${apiKey.substring(0, 4)}...` : '없음'
       });
@@ -323,9 +323,9 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
     if (currentLocation && !isMapReady) {
       // API 키 검증 먼저 실행
       const runApiValidation = async () => {
-        const viteApiKey = (import.meta.env as any)?.VITE_TMAP_API_KEY;
+        const nextApiKey = process.env.NEXT_PUBLIC_TMAP_API_KEY;
         const reactApiKey = process.env.REACT_APP_TMAP_API_KEY;
-        const apiKey = viteApiKey || reactApiKey;
+        const apiKey = nextApiKey || reactApiKey;
 
         if (apiKey) {
           console.log('🧪 TMAP API 검증 시작...');
@@ -499,9 +499,9 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
         {process.env.NODE_ENV === 'development' && (
           <button
             onClick={async () => {
-              const viteApiKey = (import.meta.env as any)?.VITE_TMAP_API_KEY;
+              const nextApiKey = process.env.NEXT_PUBLIC_TMAP_API_KEY;
               const reactApiKey = process.env.REACT_APP_TMAP_API_KEY;
-              const apiKey = viteApiKey || reactApiKey;
+              const apiKey = nextApiKey || reactApiKey;
               
               if (apiKey) {
                 console.log('🧪 수동 TMAP API 테스트 시작...');

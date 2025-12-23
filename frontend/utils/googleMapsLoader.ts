@@ -60,7 +60,7 @@ class GoogleMapsLoader {
   private loadGoogleMapsScript(options: GoogleMapsLoaderOptions): Promise<void> {
     return new Promise((resolve, reject) => {
       // 이미 로드된 경우 체크
-      if (typeof google !== 'undefined' && google.maps) {
+      if (typeof (window as any).google !== 'undefined' && (window as any).google.maps) {
         resolve();
         return;
       }
@@ -80,7 +80,7 @@ class GoogleMapsLoader {
 
       // 로드 완료 처리
       script.onload = () => {
-        if (typeof google !== 'undefined' && google.maps) {
+        if (typeof (window as any).google !== 'undefined' && (window as any).google.maps) {
           console.log('✅ Google Maps API 로드 완료');
           resolve();
         } else {
@@ -102,7 +102,7 @@ class GoogleMapsLoader {
    * 로드 상태 확인
    */
   isGoogleMapsLoaded(): boolean {
-    return this.isLoaded && typeof google !== 'undefined' && google.maps;
+    return this.isLoaded && typeof (window as any).google !== 'undefined' && (window as any).google.maps;
   }
 
   /**

@@ -34,27 +34,27 @@ interface TmapResponse {
 
 export class ARNavigationManager {
   private isKorea: boolean = false;
-  private googleDirectionsService: google.maps.DirectionsService | null = null;
+  private googleDirectionsService: any | null = null;
   private tmapApiKey: string;
   private errorCount: number = 0;
   private maxRetries: number = 3;
   private lastError: string | null = null;
 
   constructor(tmapApiKey?: string) {
-    // Vite 환경에서 환경변수 접근 방법 (import.meta.env 사용)
-    const viteTmapKey = import.meta.env?.VITE_TMAP_API_KEY;
+    // Next.js 환경에서 환경변수 접근 방법
+    const nextTmapKey = process.env.NEXT_PUBLIC_TMAP_API_KEY;
     const reactTmapKey = process.env.REACT_APP_TMAP_API_KEY;
     
     this.tmapApiKey = tmapApiKey || 
-                     viteTmapKey ||
+                     nextTmapKey ||
                      reactTmapKey ||
                      (window as any).__TMAP_API_KEY__ || 
                      '';
     
     console.log('🔑 환경변수 디버깅:');
-    console.log('- import.meta.env.VITE_TMAP_API_KEY:', viteTmapKey ? '설정됨' : '설정되지 않음');
+    console.log('- process.env.NEXT_PUBLIC_TMAP_API_KEY:', nextTmapKey ? '설정됨' : '설정되지 않음');
     console.log('- process.env.REACT_APP_TMAP_API_KEY:', reactTmapKey ? '설정됨' : '설정되지 않음');
-    console.log('- 실제 Vite 키 값:', viteTmapKey);
+    console.log('- 실제 Next 키 값:', nextTmapKey);
     console.log('- 실제 React 키 값:', reactTmapKey);
     console.log('- 최종 tmapApiKey:', this.tmapApiKey ? '설정됨' : '설정되지 않음');
     console.log('- 키 길이:', this.tmapApiKey ? this.tmapApiKey.length : 0);
@@ -65,7 +65,7 @@ export class ARNavigationManager {
     
     // Google Maps API가 로드되어 있으면 DirectionsService 초기화
     if (isGoogleMapsAvailable()) {
-      this.googleDirectionsService = new google.maps.DirectionsService();
+      this.googleDirectionsService = new (window as any).google.maps.DirectionsService();
     }
   }
 
@@ -243,17 +243,17 @@ export class ARNavigationManager {
     }
 
     return new Promise((resolve, reject) => {
-      const request: google.maps.DirectionsRequest = {
-        origin: new google.maps.LatLng(origin.lat, origin.lng),
-        destination: new google.maps.LatLng(destination.lat, destination.lng),
-        travelMode: google.maps.TravelMode.WALKING,
-        unitSystem: google.maps.UnitSystem.METRIC,
+      const request: any = {
+        origin: new (window as any).google.maps.LatLng(origin.lat, origin.lng),
+        destination: new (window as any).google.maps.LatLng(destination.lat, destination.lng),
+        travelMode: (window as any).google.maps.TravelMode.WALKING,
+        unitSystem: (window as any).google.maps.UnitSystem.METRIC,
         avoidHighways: true,
         avoidTolls: true
       };
 
-      this.googleDirectionsService!.route(request, (result, status) => {
-        if (status === google.maps.DirectionsStatus.OK && result) {
+      this.googleDirectionsService!.route(request, (result: any, status: any) => {
+        if (status === (window as any).google.maps.DirectionsStatus.OK && result) {
           const route = this.parseGoogleData(result);
           resolve(route);
         } else {
@@ -309,14 +309,14 @@ export class ARNavigationManager {
   /**
    * Google Maps 응답 데이터를 AR에서 사용할 공통 포맷으로 변환
    */
-  private parseGoogleData(result: google.maps.DirectionsResult): NavigationRoute {
+  private parseGoogleData(result: any): NavigationRoute {
     const route = result.routes[0];
     const leg = route.legs[0];
     const path: Location[] = [];
     const instructions: string[] = [];
 
     // 경로 좌표 추출
-    route.overview_path.forEach(point => {
+    route.overview_path.forEach((point: any) => {
       path.push({
         lat: point.lat(),
         lng: point.lng()
@@ -324,7 +324,7 @@ export class ARNavigationManager {
     });
 
     // 경로 안내 정보 추출
-    leg.steps.forEach(step => {
+    leg.steps.forEach((step: any) => {
       instructions.push(step.instructions.replace(/<[^>]*>/g, '')); // HTML 태그 제거
     });
 
@@ -357,7 +357,7 @@ export class ARNavigationManager {
    */
   initializeGoogleMaps(): void {
     if (isGoogleMapsAvailable()) {
-      this.googleDirectionsService = new google.maps.DirectionsService();
+      this.googleDirectionsService = new (window as any).google.maps.DirectionsService();
       console.log('✅ Google Maps DirectionsService 초기화 완료');
     }
   }

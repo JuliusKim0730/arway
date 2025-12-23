@@ -11,7 +11,7 @@ function SignInContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const callbackUrl = searchParams.get('callbackUrl') || '/ar-nav';
+  const callbackUrl = searchParams?.get('callbackUrl') || '/ar-nav';
 
   const handleGoogleSignIn = async () => {
     setLoading(true);

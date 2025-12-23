@@ -14,25 +14,25 @@ export class DebugHelper {
 
     console.group('🔍 환경변수 상태 확인');
     
-    // Vite 환경변수 확인
-    const viteTmapKey = (import.meta.env as any)?.VITE_TMAP_API_KEY;
-    const viteGoogleKey = (import.meta.env as any)?.VITE_GOOGLE_MAPS_API_KEY;
+    // Next.js 환경변수 확인
+    const nextTmapKey = process.env.NEXT_PUBLIC_TMAP_API_KEY;
+    const nextGoogleKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     
     // React 환경변수 확인 (호환성)
     const reactTmapKey = process.env.REACT_APP_TMAP_API_KEY;
     const reactGoogleKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
     
-    console.log('=== Vite 환경변수 ===');
-    console.log('VITE_TMAP_API_KEY:', viteTmapKey ? '✅ 설정됨' : '❌ 설정되지 않음');
-    console.log('VITE_GOOGLE_MAPS_API_KEY:', viteGoogleKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    console.log('=== Next.js 환경변수 ===');
+    console.log('NEXT_PUBLIC_TMAP_API_KEY:', nextTmapKey ? '✅ 설정됨' : '❌ 설정되지 않음');
+    console.log('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:', nextGoogleKey ? '✅ 설정됨' : '❌ 설정되지 않음');
     
     console.log('=== React 환경변수 (호환성) ===');
     console.log('REACT_APP_TMAP_API_KEY:', reactTmapKey ? '✅ 설정됨' : '❌ 설정되지 않음');
     console.log('REACT_APP_GOOGLE_MAPS_API_KEY:', reactGoogleKey ? '✅ 설정됨' : '❌ 설정되지 않음');
     
     // 최종 사용될 키
-    const finalTmapKey = viteTmapKey || reactTmapKey;
-    const finalGoogleKey = viteGoogleKey || reactGoogleKey;
+    const finalTmapKey = nextTmapKey || reactTmapKey;
+    const finalGoogleKey = nextGoogleKey || reactGoogleKey;
     
     console.log('=== 최종 사용 키 ===');
     console.log('TMAP API 키:', finalTmapKey ? '✅ 설정됨' : '❌ 설정되지 않음');
@@ -181,7 +181,7 @@ export class DebugHelper {
     console.log('HTTPS 환경:', location.protocol === 'https:' ? '✅' : '⚠️ HTTP');
     
     // 외부 API 로드 상태
-    console.log('Google Maps API:', typeof google !== 'undefined' ? '✅ 로드됨' : '⏳ 미로드');
+    console.log('Google Maps API:', typeof (window as any).google !== 'undefined' ? '✅ 로드됨' : '⏳ 미로드');
     console.log('TMAP API:', typeof (window as any).Tmapv2 !== 'undefined' ? '✅ 로드됨' : '⏳ 미로드');
     
     console.groupEnd();
