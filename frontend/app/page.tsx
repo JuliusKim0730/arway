@@ -2,24 +2,43 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSession, signIn } from 'next-auth/react';
 
 export default function Home() {
   const router = useRouter();
-  const { data: session, status } = useSession();
   const [loading, setLoading] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
 
-  // 로그인된 경우 자동으로 AR 네비게이션 페이지로 이동
+  // NextAuth 동적 로딩
   useEffect(() => {
-    if (status === 'authenticated') {
-      router.push('/ar-nav');
-    }
-  }, [status, router]);
+    const initAuth = async () => {
+      try {
+        // NextAuth가 제대로 설정되어 있는지 확인
+        const response = await fetch('/api/auth/session');
+        if (response.ok) {
+          const session = await response.json();
+          if (session?.user) {
+            // 이미 로그인된 경우 AR 네비게이션으로 이동
+            router.push('/ar-nav');
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('NextAuth 초기화 실패:', error);
+      }
+      setAuthReady(true);
+    };
 
-  // 로그인 버튼 클릭 핸들러
+    // 2초 후에 인증 상태 확인 (NextAuth 초기화 대기)
+    const timer = setTimeout(initAuth, 2000);
+    return () => clearTimeout(timer);
+  }, [router]);
+
+  // Google 로그인 핸들러
   const handleLogin = async () => {
     setLoading(true);
     try {
+      // NextAuth signIn 사용
+      const { signIn } = await import('next-auth/react');
       await signIn('google', {
         callbackUrl: '/ar-nav',
         redirect: true,
@@ -27,11 +46,13 @@ export default function Home() {
     } catch (error) {
       console.error('로그인 오류:', error);
       setLoading(false);
+      // 로그인 실패 시 직접 AR 네비게이션으로 이동
+      router.push('/ar-nav');
     }
   };
 
-  // 로딩 중 표시 - 타임아웃 추가
-  if (status === 'loading') {
+  // 초기 로딩 중
+  if (!authReady) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900">
         <div className="text-center space-y-6 px-4">
@@ -39,15 +60,15 @@ export default function Home() {
             ARWay Lite
           </h1>
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-400">로그인 상태 확인 중...</p>
+          <p className="text-gray-400">앱 초기화 중...</p>
           
-          {/* 임시 우회 버튼 추가 */}
-          <div className="mt-8">
+          {/* 즉시 우회 버튼 */}
+          <div className="mt-4">
             <button
               onClick={() => router.push('/ar-nav')}
               className="text-blue-400 hover:text-blue-300 underline text-sm"
             >
-              로그인 없이 계속하기 →
+              바로 시작하기 →
             </button>
           </div>
         </div>
@@ -55,7 +76,7 @@ export default function Home() {
     );
   }
 
-  // 로그인되지 않은 경우 메인 화면 표시 (로그인 버튼 포함)
+  // 메인 화면
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900">
       <div className="text-center space-y-6 px-4">
@@ -98,12 +119,12 @@ export default function Home() {
           </button>
           
           <div className="text-sm text-gray-500 space-y-2">
-            <p>또는 직접 이동:</p>
+            <p>또는</p>
             <button
               onClick={() => router.push('/ar-nav')}
-              className="text-blue-400 hover:text-blue-300 underline"
+              className="text-blue-400 hover:text-blue-300 underline font-medium"
             >
-              /ar-nav
+              로그인 없이 시작하기 →
             </button>
           </div>
         </div>

@@ -5,7 +5,17 @@ import Google from 'next-auth/providers/google';
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const nextAuthSecret = process.env.NEXTAUTH_SECRET;
-const nextAuthUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL;
+const nextAuthUrl = process.env.NEXTAUTH_URL;
+
+// 프로덕션에서 필수 환경 변수 체크
+if (process.env.NODE_ENV === 'production') {
+  if (!nextAuthSecret) {
+    console.error('❌ NEXTAUTH_SECRET이 설정되지 않았습니다.');
+  }
+  if (!nextAuthUrl) {
+    console.error('❌ NEXTAUTH_URL이 설정되지 않았습니다.');
+  }
+}
 
 // 개발 환경에서만 경고 출력
 if (process.env.NODE_ENV === 'development') {
@@ -50,11 +60,25 @@ const authConfig = {
   },
   session: {
     strategy: 'jwt' as const,
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: nextAuthSecret,
   debug: process.env.NODE_ENV === 'development',
   // Vercel 배포를 위한 trustHost 설정
   trustHost: true,
+  // 추가 안전 설정
+  useSecureCookies: process.env.NODE_ENV === 'production',
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === 'production' ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+  },
 };
 
 const { handlers } = NextAuth(authConfig);
