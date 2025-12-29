@@ -28,6 +28,10 @@ interface TmapResponse {
       totalDistance?: number;
       totalTime?: number;
       description?: string;
+      turnType?: string;
+      pointType?: string;
+      distance?: number;
+      time?: number;
     };
   }>;
 }
