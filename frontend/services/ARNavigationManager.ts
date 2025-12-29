@@ -121,13 +121,32 @@ export class ARNavigationManager {
         console.log("🇰🇷 국내 위치 감지: TMAP API 기반 경로를 요청합니다.");
         
         if (!this.tmapApiKey) {
-          console.error('❌ TMAP API 키가 없어서 Google Maps로 폴백합니다.');
+          console.warn('⚠️ TMAP API 키가 없어서 Google Maps로 폴백합니다.');
+          // Google Maps API도 확인
+          if (!isGoogleMapsAvailable()) {
+            console.warn('⚠️ Google Maps API도 사용할 수 없습니다. 직선 경로로 폴백합니다.');
+            throw new Error('API_KEY_NOT_AVAILABLE'); // 특별한 에러 코드
+          }
           result = await this.getGoogleRoute(origin, destination);
         } else {
-          result = await this.getTmapWalkingRoute(origin, destination);
+          try {
+            result = await this.getTmapWalkingRoute(origin, destination);
+          } catch (tmapError) {
+            console.warn('⚠️ TMAP API 호출 실패, Google Maps로 폴백:', tmapError);
+            // TMAP 실패 시 Google Maps로 폴백
+            if (isGoogleMapsAvailable()) {
+              result = await this.getGoogleRoute(origin, destination);
+            } else {
+              throw new Error('API_KEY_NOT_AVAILABLE');
+            }
+          }
         }
       } else {
         console.log("🌍 해외 위치 감지: Google Maps API 기반 경로를 요청합니다.");
+        if (!isGoogleMapsAvailable()) {
+          console.warn('⚠️ Google Maps API를 사용할 수 없습니다.');
+          throw new Error('API_KEY_NOT_AVAILABLE');
+        }
         result = await this.getGoogleRoute(origin, destination);
       }
 
@@ -228,18 +247,35 @@ export class ARNavigationManager {
     // Google Maps API가 로드되지 않은 경우 동적 로드 시도
     if (!isGoogleMapsAvailable()) {
       try {
-        console.log('Google Maps API 로드 중...');
+        console.log('📡 Google Maps API 로드 중...');
         await loadGoogleMaps();
-        this.initializeGoogleMaps();
-      } catch (error) {
-        console.error('Google Maps API 로드 실패:', error);
-        return null;
+        // DirectionsService 초기화 대기
+        await this.initializeGoogleMapsWithRetry();
+      } catch (error: any) {
+        const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+        if (errorMessage === 'API_KEY_NOT_AVAILABLE') {
+          console.warn('⚠️ Google Maps API 키가 설정되지 않았습니다.');
+          throw new Error('API_KEY_NOT_AVAILABLE');
+        }
+        console.error('❌ Google Maps API 로드 실패:', error);
+        throw error;
       }
     }
 
+    // DirectionsService 초기화 확인 및 재시도
     if (!this.googleDirectionsService) {
-      console.error('Google Maps DirectionsService를 초기화할 수 없습니다.');
-      return null;
+      console.warn('⚠️ DirectionsService가 없습니다. 재초기화 시도...');
+      await this.initializeGoogleMapsWithRetry();
+      
+      if (!this.googleDirectionsService) {
+        const errorMsg = 'Google Maps DirectionsService를 초기화할 수 없습니다.';
+        console.error(`❌ ${errorMsg}`, {
+          googleAvailable: typeof window !== 'undefined' && !!(window as any).google,
+          mapsAvailable: typeof window !== 'undefined' && !!(window as any).google?.maps,
+          mapsVersion: typeof window !== 'undefined' ? (window as any).google?.maps?.version : 'N/A'
+        });
+        throw new Error(errorMsg);
+      }
     }
 
     return new Promise((resolve, reject) => {
@@ -252,20 +288,101 @@ export class ARNavigationManager {
         avoidTolls: true
       };
 
+      console.log('🗺️ Google Directions API 호출 시작:', {
+        origin: { lat: origin.lat, lng: origin.lng },
+        destination: { lat: destination.lat, lng: destination.lng },
+        mapsVersion: (window as any).google?.maps?.version || 'N/A'
+      });
+
       this.googleDirectionsService!.route(request, (result: any, status: any) => {
+        // 상세한 에러 로깅 (배포 환경 디버깅용)
+        const statusDetails = {
+          status,
+          statusText: this.getDirectionsStatusText(status),
+          result: result ? {
+            routes: result.routes?.length || 0,
+            hasRoutes: !!result.routes?.length
+          } : null,
+          mapsVersion: (window as any).google?.maps?.version || 'N/A',
+          apiKeySet: !!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
+          currentUrl: typeof window !== 'undefined' ? window.location.href : 'N/A'
+        };
+
         if (status === (window as any).google.maps.DirectionsStatus.OK && result) {
+          console.log('✅ Google Directions API 성공:', statusDetails);
           const route = this.parseGoogleData(result);
           resolve(route);
         } else {
-          console.error(`Google Maps API 실패: ${status}`);
-          reject(new Error(`Google Maps API 실패: ${status}`));
+          console.error('❌ Google Directions API 실패:', statusDetails);
+          
+          // 배포 환경에서 자주 발생하는 에러에 대한 구체적인 안내
+          let errorMessage = `Google Directions API 실패: ${status}`;
+          if (status === 'REQUEST_DENIED') {
+            errorMessage += '\n💡 가능한 원인:\n' +
+              '1. API Key의 HTTP Referrer 제한에 배포 도메인이 포함되지 않음\n' +
+              '   → Google Cloud Console에서 https://*.vercel.app/* 추가 필요\n' +
+              '2. Billing이 연결되지 않음\n' +
+              '   → Google Cloud Console에서 결제 계정 연결 필요\n' +
+              '3. Directions API가 활성화되지 않음\n' +
+              '   → Google Cloud Console에서 Directions API 활성화 필요';
+          } else if (status === 'OVER_QUERY_LIMIT') {
+            errorMessage += '\n💡 API 할당량 초과. Billing 설정 확인 필요';
+          } else if (status === 'ZERO_RESULTS') {
+            errorMessage += '\n💡 경로를 찾을 수 없습니다. 출발지/도착지 좌표 확인 필요';
+          }
+          
+          reject(new Error(errorMessage));
         }
       });
     });
   }
 
   /**
+   * DirectionsService 초기화 (재시도 로직 포함)
+   */
+  private async initializeGoogleMapsWithRetry(maxRetries: number = 3): Promise<void> {
+    for (let i = 0; i < maxRetries; i++) {
+      if (isGoogleMapsAvailable()) {
+        try {
+          this.initializeGoogleMaps();
+          if (this.googleDirectionsService) {
+            console.log('✅ DirectionsService 초기화 성공');
+            return;
+          }
+        } catch (err) {
+          console.warn(`⚠️ DirectionsService 초기화 실패 (시도 ${i + 1}/${maxRetries}):`, err);
+        }
+      }
+      
+      // 재시도 전 대기
+      if (i < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+      }
+    }
+    
+    console.error('❌ DirectionsService 초기화 최대 재시도 횟수 초과');
+  }
+
+  /**
+   * Directions Status 텍스트 변환 (디버깅용)
+   */
+  private getDirectionsStatusText(status: string): string {
+    const statusMap: Record<string, string> = {
+      'OK': '성공',
+      'NOT_FOUND': '경로를 찾을 수 없음',
+      'ZERO_RESULTS': '결과 없음',
+      'MAX_WAYPOINTS_EXCEEDED': '경유지 초과',
+      'INVALID_REQUEST': '잘못된 요청',
+      'OVER_QUERY_LIMIT': '할당량 초과',
+      'REQUEST_DENIED': '요청 거부',
+      'UNKNOWN_ERROR': '알 수 없는 오류'
+    };
+    return statusMap[status] || status;
+  }
+
+  /**
    * TMAP 응답 데이터를 AR에서 사용할 공통 포맷으로 변환
+   * 개선된 버전: 단계별 상세 정보 포함
    */
   private parseTmapData(data: TmapResponse): NavigationRoute {
     const path: Location[] = [];
@@ -273,9 +390,10 @@ export class ARNavigationManager {
     let totalDistance = 0;
     let totalTime = 0;
 
-    data.features.forEach(feature => {
-      // 경로 좌표 추출
-      if (feature.geometry.type === "LineString") {
+    // 경로 좌표 및 단계 정보 추출
+    data.features.forEach((feature, index) => {
+      // 경로 좌표 추출 (LineString)
+      if (feature.geometry.type === "LineString" && feature.geometry.coordinates) {
         feature.geometry.coordinates.forEach(coord => {
           path.push({ 
             lat: coord[1], 
@@ -284,19 +402,79 @@ export class ARNavigationManager {
         });
       }
 
-      // 거리 및 시간 정보 추출
+      // Point 타입의 경우 단계 정보 추출
+      if (feature.geometry.type === "Point" && feature.geometry.coordinates) {
+        const coord = feature.geometry.coordinates;
+        const pointLocation = { lat: coord[1], lng: coord[0] };
+        
+        // 안내 문구 생성
+        let instruction = feature.properties.description || '';
+        
+        // turnType에 따른 안내 문구 보강
+        if (feature.properties.turnType) {
+          const turnTypeMap: Record<string, string> = {
+            '11': '직진',
+            '12': '우회전',
+            '13': '좌회전',
+            '14': '유턴',
+            '15': '우측 유턴',
+            '16': '좌측 유턴',
+            '17': '우측 방면',
+            '18': '좌측 방면',
+          };
+          
+          const turnText = turnTypeMap[feature.properties.turnType];
+          if (turnText && !instruction.includes(turnText)) {
+            instruction = turnText + (instruction ? ` - ${instruction}` : '');
+          }
+        }
+        
+        // 거리 정보 추가
+        if (feature.properties.distance) {
+          const dist = feature.properties.distance;
+          if (dist < 1000) {
+            instruction += ` (${Math.round(dist)}m)`;
+          } else {
+            instruction += ` (${(dist / 1000).toFixed(1)}km)`;
+          }
+        }
+        
+        if (instruction) {
+          instructions.push(instruction);
+        }
+      }
+
+      // 전체 거리 및 시간 정보 추출
       if (feature.properties.totalDistance) {
         totalDistance = feature.properties.totalDistance;
       }
       if (feature.properties.totalTime) {
         totalTime = feature.properties.totalTime;
       }
-
-      // 경로 안내 정보 추출
-      if (feature.properties.description) {
-        instructions.push(feature.properties.description);
-      }
     });
+
+    // 경로가 비어있으면 기본 경로 생성
+    if (path.length === 0 && data.features.length > 0) {
+      // 첫 번째와 마지막 좌표 사용
+      const firstFeature = data.features[0];
+      const lastFeature = data.features[data.features.length - 1];
+      
+      if (firstFeature.geometry.coordinates && lastFeature.geometry.coordinates) {
+        path.push({
+          lat: firstFeature.geometry.coordinates[1],
+          lng: firstFeature.geometry.coordinates[0],
+        });
+        path.push({
+          lat: lastFeature.geometry.coordinates[1],
+          lng: lastFeature.geometry.coordinates[0],
+        });
+      }
+    }
+
+    // 안내 문구가 없으면 기본 문구 추가
+    if (instructions.length === 0) {
+      instructions.push('목적지까지 직진하세요');
+    }
 
     return {
       path,
@@ -357,8 +535,15 @@ export class ARNavigationManager {
    */
   initializeGoogleMaps(): void {
     if (isGoogleMapsAvailable()) {
-      this.googleDirectionsService = new (window as any).google.maps.DirectionsService();
-      console.log('✅ Google Maps DirectionsService 초기화 완료');
+      try {
+        this.googleDirectionsService = new (window as any).google.maps.DirectionsService();
+        console.log('✅ Google Maps DirectionsService 초기화 완료');
+      } catch (err) {
+        console.error('❌ DirectionsService 생성 실패:', err);
+        throw err;
+      }
+    } else {
+      console.warn('⚠️ Google Maps API가 아직 로드되지 않았습니다.');
     }
   }
 

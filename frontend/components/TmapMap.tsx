@@ -27,6 +27,7 @@ export function TmapMap({
   zoom = 15, 
   markers = [],
   onMapClick,
+  onError,
   className = 'w-full h-full'
 }: TmapMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -51,7 +52,8 @@ export function TmapMap({
       const apiKey = nextApiKey || reactApiKey;
       
       if (!apiKey || apiKey === 'YOUR_TMAP_API_KEY_HERE') {
-        reject(new Error('TMAP API 키가 설정되지 않았습니다. .env.local 파일을 확인해주세요.'));
+        console.warn('⚠️ TMAP API 키가 설정되지 않았습니다. Google Maps로 폴백합니다.');
+        reject(new Error('TMAP_API_KEY_NOT_SET')); // 특별한 에러 코드
         return;
       }
 
@@ -104,8 +106,13 @@ export function TmapMap({
     }
 
     try {
-      // TMAP API 로드
-      await loadTmapAPI();
+      // TMAP API 로드 (타임아웃 10초로 단축)
+      const loadPromise = loadTmapAPI();
+      const timeoutPromise = new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error('TMAP_API_LOAD_TIMEOUT')), 10000);
+      });
+      
+      await Promise.race([loadPromise, timeoutPromise]);
       
       if (!window.Tmapv2) {
         throw new Error('window.Tmapv2 객체가 존재하지 않습니다.');
@@ -151,10 +158,24 @@ export function TmapMap({
 
     } catch (err) {
       console.error('TMAP 지도 초기화 실패:', err);
-      setError(err instanceof Error ? err.message : 'TMAP 지도를 로드할 수 없습니다.');
+      const errorMessage = err instanceof Error ? err.message : 'TMAP 지도를 로드할 수 없습니다.';
+      
+      // API 키가 없거나 타임아웃인 경우 특별 처리
+      if (errorMessage === 'TMAP_API_KEY_NOT_SET' || errorMessage === 'TMAP_API_LOAD_TIMEOUT') {
+        setError('TMAP_API_KEY_NOT_SET'); // 특별한 에러 코드로 설정
+        // 부모 컴포넌트에 에러 알림
+        if (onError) {
+          onError('TMAP_API_KEY_NOT_SET');
+        }
+      } else {
+        setError(errorMessage);
+        if (onError) {
+          onError(errorMessage);
+        }
+      }
       setIsLoaded(false);
     }
-  }, [center, zoom, onMapClick, loadTmapAPI]);
+  }, [center, zoom, onMapClick, onError, loadTmapAPI]);
 
   // 지도 초기화
   useEffect(() => {
@@ -254,6 +275,18 @@ export function TmapMap({
   }, [tmapRef.current, isLoaded, markers, addMarker]);
 
   if (error) {
+    // TMAP API 키가 없는 경우 Google Maps로 폴백하도록 부모 컴포넌트에 알림
+    if (error === 'TMAP_API_KEY_NOT_SET') {
+      return (
+        <div className={`${className} flex items-center justify-center bg-gray-100 text-gray-600`}>
+          <div className="text-center p-4">
+            <p className="text-sm text-yellow-600 mb-2">⚠️ TMAP API 키가 설정되지 않았습니다.</p>
+            <p className="text-xs text-gray-500">Google Maps로 전환 중...</p>
+          </div>
+        </div>
+      );
+    }
+    
     return (
       <div className={`${className} flex items-center justify-center bg-gray-100 text-gray-600`}>
         <div className="text-center p-4">
@@ -264,11 +297,23 @@ export function TmapMap({
   }
 
   if (!isLoaded) {
+    // 타임아웃 설정 (10초 후 에러 표시)
+    useEffect(() => {
+      const timeout = setTimeout(() => {
+        if (!isLoaded && !error) {
+          console.warn('TMAP 지도 로딩 타임아웃');
+          setError('TMAP_API_KEY_NOT_SET');
+        }
+      }, 10000);
+      return () => clearTimeout(timeout);
+    }, [isLoaded, error]);
+
     return (
       <div className={`${className} flex items-center justify-center bg-gray-100`}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600 text-sm">TMAP 지도 로딩 중...</p>
+          <p className="text-gray-400 text-xs mt-2">10초 이상 걸리면 Google Maps로 전환됩니다</p>
         </div>
       </div>
     );

@@ -120,20 +120,30 @@ export default function Home() {
   const handleLogin = async () => {
     setLoading(true);
     try {
-      // NextAuth signIn 사용
+      // NextAuth signIn 사용 (redirect: false로 변경하여 수동 리다이렉트)
       const { signIn } = await import('next-auth/react');
       
-      // 타임아웃 설정 (10초)
-      const loginPromise = signIn('google', {
+      const result = await signIn('google', {
         callbackUrl: '/ar-nav',
-        redirect: true,
+        redirect: false, // 수동 리다이렉트로 변경
       });
       
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('로그인 타임아웃')), 10000);
-      });
+      if (result?.error) {
+        console.error('로그인 오류:', result.error);
+        alert('로그인에 실패했습니다. 다시 시도해주세요.');
+        setLoading(false);
+        return;
+      }
       
-      await Promise.race([loginPromise, timeoutPromise]);
+      if (result?.ok) {
+        // 로그인 성공 시 리다이렉트
+        router.push('/ar-nav');
+        router.refresh(); // 세션 새로고침
+        return;
+      }
+      
+      // 결과가 없으면 타임아웃으로 간주
+      throw new Error('로그인 응답 없음');
     } catch (error: any) {
       console.error('로그인 오류:', error);
       setLoading(false);

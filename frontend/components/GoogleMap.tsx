@@ -104,7 +104,9 @@ export function GoogleMap({
         ? 'https://maps.googleapis.com/maps/api/js'
         : 'https://maps.googleapis.com/maps/api/js'; // 필요시 다른 CDN URL 시도 가능
       
-      script.src = `${baseUrl}?key=${apiKey}&libraries=places,marker&callback=${callbackName}`;
+      // marker 라이브러리 제거 (배포 환경 안정화를 위해)
+      // Directions API는 marker 라이브러리와 무관하므로 제거하여 안정성 향상
+      script.src = `${baseUrl}?key=${apiKey}&libraries=places&callback=${callbackName}`;
       script.async = true;
       script.defer = true;
       script.id = `google-maps-script-${attempt}`;

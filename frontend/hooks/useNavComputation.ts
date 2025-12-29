@@ -105,29 +105,98 @@ export function useNavComputation(
         console.log('🇰🇷 TMAP API로 경로 계산 시작');
         const tmapRoute = await arNavigationManager.getDirections(currentLocation, targetLocation);
         
-        if (tmapRoute) {
-          // TMAP 결과를 Google Maps 형식으로 변환
+        if (tmapRoute && tmapRoute.path.length > 0) {
+          // TMAP 경로를 Google Maps 형식으로 변환 (개선된 버전)
+          // 경로 좌표를 사용하여 각 단계의 방향(bearing) 계산
+          const steps: RouteStep[] = [];
+          
+          // 경로 좌표를 기반으로 단계 생성
+          for (let i = 0; i < tmapRoute.path.length - 1; i++) {
+            const startLoc = tmapRoute.path[i];
+            const endLoc = tmapRoute.path[i + 1];
+            
+            // 두 지점 간 거리 계산
+            const stepDistance = getDistance(
+              { latitude: startLoc.lat, longitude: startLoc.lng },
+              { latitude: endLoc.lat, longitude: endLoc.lng }
+            );
+            
+            // 방향(bearing) 계산
+            const stepBearing = getRhumbLineBearing(
+              { latitude: startLoc.lat, longitude: startLoc.lng },
+              { latitude: endLoc.lat, longitude: endLoc.lng }
+            );
+            
+            // 안내 문구 (TMAP instructions 사용 또는 생성)
+            let instruction = tmapRoute.instructions[i] || '직진하세요';
+            
+            // 방향에 따른 안내 문구 보강
+            if (!tmapRoute.instructions[i]) {
+              const absBearing = Math.abs(stepBearing);
+              if (absBearing < 15 || absBearing > 345) {
+                instruction = '직진하세요';
+              } else if (stepBearing > 0 && stepBearing < 180) {
+                instruction = '우측으로 진행하세요';
+              } else {
+                instruction = '좌측으로 진행하세요';
+              }
+            }
+            
+            steps.push({
+              distance: stepDistance,
+              duration: Math.round((tmapRoute.duration / tmapRoute.path.length) * (stepDistance / tmapRoute.distance)),
+              instruction,
+              startLocation: startLoc,
+              endLocation: endLoc,
+              bearing: stepBearing,
+            });
+          }
+          
+          // 마지막 단계가 없으면 추가
+          if (steps.length === 0 && tmapRoute.path.length > 0) {
+            const lastPoint = tmapRoute.path[tmapRoute.path.length - 1];
+            const bearing = getRhumbLineBearing(
+              { latitude: currentLocation.lat, longitude: currentLocation.lng },
+              { latitude: targetLocation.lat, longitude: targetLocation.lng }
+            );
+            
+            steps.push({
+              distance: tmapRoute.distance,
+              duration: tmapRoute.duration,
+              instruction: tmapRoute.instructions[0] || '목적지까지 직진하세요',
+              startLocation: currentLocation,
+              endLocation: targetLocation,
+              bearing,
+            });
+          }
+          
+          // 초기 방향 계산
+          const initialBearing = steps.length > 0 
+            ? steps[0].bearing 
+            : getRhumbLineBearing(
+                { latitude: currentLocation.lat, longitude: currentLocation.lng },
+                { latitude: targetLocation.lat, longitude: targetLocation.lng }
+              );
+          
           const convertedRoute: GoogleMapsRoute = {
             distance: tmapRoute.distance,
             duration: tmapRoute.duration,
-            steps: tmapRoute.instructions.map((instruction, index) => ({
-              distance: Math.round(tmapRoute.distance / tmapRoute.instructions.length),
-              duration: Math.round(tmapRoute.duration / tmapRoute.instructions.length),
-              instruction: instruction,
-              startLocation: tmapRoute.path[index] || currentLocation,
-              endLocation: tmapRoute.path[index + 1] || targetLocation,
-              bearing: 0 // TMAP에서 방향 정보가 없으므로 기본값
-            })),
-            polyline: '', // TMAP에서 polyline 정보가 없으므로 빈 문자열
+            steps,
+            polyline: '', // TMAP에서 polyline은 별도 처리 필요
             startLocation: currentLocation,
             endLocation: targetLocation,
-            initialBearing: 0 // 기본값
+            initialBearing,
           };
           
           setGoogleRoute(convertedRoute);
           setCurrentStepIndex(0);
           setUseDirectRoute(false);
-          console.log('✅ TMAP 경로 계산 성공');
+          console.log('✅ TMAP 경로 계산 성공:', {
+            distance: tmapRoute.distance,
+            duration: tmapRoute.duration,
+            stepsCount: steps.length,
+            pathPoints: tmapRoute.path.length
+          });
           return;
         }
       } else if (selectedService === 'Google Maps') {
@@ -145,18 +214,22 @@ export function useNavComputation(
       throw new Error('API 서비스를 사용할 수 없습니다');
       
     } catch (error) {
-      console.warn(`${selectedService} API 호출 실패, 직선 경로로 폴백:`, error);
+      const errorMessage = error instanceof Error ? error.message : '경로 계산 실패';
       
-      let errorMessage = '경로 계산 실패';
-      if (error instanceof Error) {
-        errorMessage = error.message;
+      // API 키가 없는 경우 특별 처리
+      if (errorMessage === 'API_KEY_NOT_AVAILABLE' || errorMessage.includes('API 키')) {
+        console.warn('⚠️ API 키가 설정되지 않았습니다. 직선 경로로 폴백합니다.');
+        console.warn('💡 로컬 개발 시: frontend/.env.local 파일에 API 키를 설정하세요.');
+        console.warn('💡 예시 파일: frontend/.env.local.example');
+      } else {
+        console.warn(`${selectedService} API 호출 실패, 직선 경로로 폴백:`, error);
       }
       
       setRouteError(errorMessage);
       setGoogleRoute(null);
       setUseDirectRoute(true);
       setCurrentService('Direct');
-      console.log('📍 직선 경로 모드로 전환됨');
+      console.log('📍 직선 경로 모드로 전환됨 (API 키 없음 또는 API 호출 실패)');
     } finally {
       setRouteLoading(false);
     }

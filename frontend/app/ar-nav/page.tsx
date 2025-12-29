@@ -55,17 +55,34 @@ export default function ArNavStartPage() {
   useEffect(() => {
     if (!permissionsGranted) return;
 
-    // 로그인 체크
-    if (status === 'unauthenticated') {
-      router.push('/auth/signin?callbackUrl=/ar-nav');
-      return;
-    }
+    // 로그인 체크 (타임아웃 설정)
+    const checkAuth = async () => {
+      // 최대 5초 대기
+      const timeout = setTimeout(() => {
+        console.warn('인증 확인 타임아웃 - 게스트 모드로 진행');
+        setIsSupported({
+          geolocation: !!navigator.geolocation,
+          camera: !!navigator.mediaDevices?.getUserMedia,
+        });
+      }, 5000);
 
-    // 브라우저 지원 여부 확인
-    setIsSupported({
-      geolocation: !!navigator.geolocation,
-      camera: !!navigator.mediaDevices?.getUserMedia,
-    });
+      if (status === 'unauthenticated') {
+        clearTimeout(timeout);
+        router.push('/auth/signin?callbackUrl=/ar-nav');
+        return;
+      }
+
+      if (status === 'authenticated' || status === 'loading') {
+        clearTimeout(timeout);
+        // 브라우저 지원 여부 확인
+        setIsSupported({
+          geolocation: !!navigator.geolocation,
+          camera: !!navigator.mediaDevices?.getUserMedia,
+        });
+      }
+    };
+
+    checkAuth();
   }, [status, router, permissionsGranted]);
 
   const handleStart = () => {

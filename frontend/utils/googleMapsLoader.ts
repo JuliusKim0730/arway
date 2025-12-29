@@ -120,10 +120,13 @@ export const googleMapsLoader = GoogleMapsLoader.getInstance();
  * Google Maps API 로드 헬퍼 함수
  */
 export async function loadGoogleMaps(apiKey?: string): Promise<void> {
-  const key = apiKey || process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+  // Next.js 환경 변수 우선 사용
+  const nextKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const reactKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+  const key = apiKey || nextKey || reactKey;
   
   if (!key || key === 'YOUR_GOOGLE_MAPS_API_KEY_HERE') {
-    throw new Error('Google Maps API 키가 설정되지 않았습니다. .env.local 파일에 REACT_APP_GOOGLE_MAPS_API_KEY를 설정해주세요.');
+    throw new Error('API_KEY_NOT_AVAILABLE'); // 특별한 에러 코드
   }
 
   await googleMapsLoader.load({

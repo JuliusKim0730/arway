@@ -8,6 +8,10 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'ARWay Lite - AR 도보 네비게이션',
   description: 'SCQ 기반 AR 도보 네비게이션 MVP',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

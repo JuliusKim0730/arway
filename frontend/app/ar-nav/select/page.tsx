@@ -37,17 +37,22 @@ export default function ArNavSelectPage() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [isKorea, setIsKorea] = useState(false);
+  const [tmapError, setTmapError] = useState(false); // TMAP 로딩 실패 플래그
   
   const { currentLocation: gpsLocation, getCurrentLocation } = useCurrentLocation();
 
-  // 한국 여부 확인
+  // 한국 여부 확인 및 TMAP API 키 확인
   useEffect(() => {
     const location = currentLocation || gpsLocation || mapCenter;
     if (location) {
       const koreaCheck = arNavigationManager.checkIsKorea(location.lat, location.lng);
-      setIsKorea(koreaCheck);
+      // TMAP API 키가 없거나 에러가 발생하면 Google Maps 사용
+      const hasTmapKey = typeof window !== 'undefined' && 
+                         !!(process.env.NEXT_PUBLIC_TMAP_API_KEY && 
+                           process.env.NEXT_PUBLIC_TMAP_API_KEY !== 'YOUR_TMAP_API_KEY_HERE');
+      setIsKorea(koreaCheck && hasTmapKey && !tmapError);
     }
-  }, [currentLocation, gpsLocation, mapCenter]);
+  }, [currentLocation, gpsLocation, mapCenter, tmapError]);
 
   // 페이지 언마운트 시 상태 초기화
   useEffect(() => {
@@ -433,8 +438,8 @@ export default function ArNavSelectPage() {
       <div className="flex-1 flex flex-col sm:flex-row min-h-0">
         {/* 지도 영역 */}
         <div className="flex-1 min-h-[300px] sm:min-h-0">
-          {/* 한국이면 TMAP, 아니면 Google Maps */}
-          {isKorea ? (
+          {/* 한국이면 TMAP, 아니면 Google Maps (TMAP API 키가 없거나 에러 발생 시 Google Maps로 폴백) */}
+          {isKorea && !tmapError ? (
             <TmapMap
               center={mapCenter}
               zoom={selectedPlace ? 16 : 14}
@@ -463,6 +468,13 @@ export default function ArNavSelectPage() {
               ]}
               onMapClick={handleMapClick}
               className="w-full h-full"
+              onError={(error) => {
+                // TMAP 에러 발생 시 Google Maps로 전환
+                if (error === 'TMAP_API_KEY_NOT_SET' || error.includes('TMAP')) {
+                  console.warn('TMAP 지도 로딩 실패, Google Maps로 전환');
+                  setTmapError(true);
+                }
+              }}
             />
           ) : (
             <GoogleMap
