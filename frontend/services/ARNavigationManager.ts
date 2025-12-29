@@ -463,14 +463,25 @@ export class ARNavigationManager {
       const firstFeature = data.features[0];
       const lastFeature = data.features[data.features.length - 1];
       
-      if (firstFeature.geometry.coordinates && lastFeature.geometry.coordinates) {
+      // Point 타입의 경우 coordinates는 number[] (단일 좌표)
+      // LineString 타입의 경우 coordinates는 number[][] (좌표 배열)
+      const getFirstCoordinate = (coords: number[] | number[][]): number[] | null => {
+        if (coords.length === 0) return null;
+        // 첫 번째 요소가 배열이면 첫 번째 좌표, 아니면 좌표 자체
+        return Array.isArray(coords[0]) ? coords[0] : coords as number[];
+      };
+      
+      const firstCoord = getFirstCoordinate(firstFeature.geometry.coordinates);
+      const lastCoord = getFirstCoordinate(lastFeature.geometry.coordinates);
+      
+      if (firstCoord && lastCoord && firstCoord.length >= 2 && lastCoord.length >= 2) {
         path.push({
-          lat: firstFeature.geometry.coordinates[1],
-          lng: firstFeature.geometry.coordinates[0],
+          lat: firstCoord[1],
+          lng: firstCoord[0],
         });
         path.push({
-          lat: lastFeature.geometry.coordinates[1],
-          lng: lastFeature.geometry.coordinates[0],
+          lat: lastCoord[1],
+          lng: lastCoord[0],
         });
       }
     }
