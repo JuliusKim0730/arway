@@ -175,7 +175,7 @@ export default function ArNavSelectPage() {
   const handleSetAsStart = () => {
     if (clickedLocation) {
       setStartLocation(clickedLocation);
-      setCurrentLocation(clickedLocation); // 현재 위치도 업데이트
+      // 현재 위치는 GPS 위치를 유지 (클릭한 위치로 덮어쓰지 않음)
       setMapCenter(clickedLocation);
       toast.success('시작 위치로 설정되었습니다.');
       setShowLocationOptions(false);
@@ -425,11 +425,19 @@ export default function ArNavSelectPage() {
             center={mapCenter}
             zoom={selectedPlace ? 16 : 14}
             markers={[
+              // 현재 위치 마커 (GPS 위치)
+              ...(currentLocation ? [{
+                position: currentLocation,
+                label: '📍',
+                title: '현재 위치',
+              }] : []),
+              // 시작 위치 마커
               ...(startLocation ? [{
                 position: startLocation,
                 label: '시작',
                 title: '시작 위치',
               }] : []),
+              // 도착 위치 마커
               ...(destinationLocation ? [{
                 position: destinationLocation,
                 label: '도착',

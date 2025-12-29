@@ -267,6 +267,9 @@ export function GoogleMap({
     // 새 마커 추가 - 기본 Marker 사용 (AdvancedMarkerElement는 지도 ID 필요)
     markers.forEach((markerData) => {
       try {
+        // 현재 위치 마커는 다른 색상으로 표시
+        const isCurrentLocation = markerData.label === '📍';
+        
         // @ts-ignore - Marker는 deprecated이지만 안정적으로 작동
         const marker = new window.google.maps.Marker({
           position: { lat: markerData.position.lat, lng: markerData.position.lng },
@@ -275,8 +278,16 @@ export function GoogleMap({
           label: markerData.label ? {
             text: markerData.label,
             color: 'white',
-            fontSize: '14px',
+            fontSize: isCurrentLocation ? '16px' : '14px',
             fontWeight: 'bold',
+          } : undefined,
+          icon: isCurrentLocation ? {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: '#4285F4',
+            fillOpacity: 1,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 2,
           } : undefined,
           optimized: false, // 성능 최적화 비활성화 (정확도 우선)
         });

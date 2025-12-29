@@ -163,7 +163,7 @@ export function useGeolocationWatcher() {
     }
     
     return {
-      enableHighAccuracy: false, // 배터리 절약 및 빠른 응답을 위해 false로 변경
+      enableHighAccuracy: true, // GPS 정확도 향상을 위해 true로 변경
       timeout,
       maximumAge,
     };

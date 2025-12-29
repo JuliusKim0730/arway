@@ -60,46 +60,45 @@ export function PlaceSearch({
 
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        // Google Maps API 로드 확인
+        // Google Maps API 로드 확인 (최대 5초 대기)
+        let retryCount = 0;
+        const maxRetries = 10; // 10번 시도 (총 5초)
+        
+        while (retryCount < maxRetries) {
+          if (typeof window !== 'undefined' && window.google && window.google.maps && window.google.maps.places) {
+            break; // API가 로드되었으면 루프 종료
+          }
+          
+          if (retryCount === 0) {
+            console.log('Google Maps API 로드 대기 중...');
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 500)); // 0.5초 대기
+          retryCount++;
+        }
+        
+        // 최종 확인
         if (typeof window === 'undefined' || !window.google || !window.google.maps || !window.google.maps.places) {
-          throw new Error('Google Maps API가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.');
+          throw new Error('Google Maps API가 로드되지 않았습니다. 페이지를 새로고침해주세요.');
         }
 
+        console.log('장소 검색 시작:', query.trim());
         const places = await searchPlaces(
           query.trim(),
           currentLocation || undefined,
           currentLocation ? 5000 : undefined
         );
+        
+        console.log('검색 결과:', places.length, '개');
         setResults(places);
         setShowResults(true);
+        setError(null);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : '검색 중 오류가 발생했습니다.';
+        console.error('검색 오류:', err);
         setError(errorMessage);
         setResults([]);
-        
-        // Google Maps API 로드 실패 시 사용자 안내
-        if (errorMessage.includes('로드되지 않았습니다') || errorMessage.includes('Places 라이브러리')) {
-          console.warn('Google Maps API 로드 대기 중...');
-          // 2초 후 자동 재시도
-          setTimeout(() => {
-            if (query.trim()) {
-              setLoading(true);
-              searchPlaces(
-                query.trim(),
-                currentLocation || undefined,
-                currentLocation ? 5000 : undefined
-              ).then((places) => {
-                setResults(places);
-                setShowResults(true);
-                setError(null);
-              }).catch((retryErr) => {
-                setError(retryErr instanceof Error ? retryErr.message : '검색 중 오류가 발생했습니다.');
-              }).finally(() => {
-                setLoading(false);
-              });
-            }
-          }, 2000);
-        }
+        setShowResults(false);
       } finally {
         setLoading(false);
       }

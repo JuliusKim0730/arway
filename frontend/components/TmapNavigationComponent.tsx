@@ -158,18 +158,7 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
       console.log('✅ TMAP 지도 객체 생성 완료');
 
       // 현재 위치 마커 추가
-      try {
-        const currentMarker = new window.Tmapv2.Marker({
-          position: new window.Tmapv2.LatLng(currentLocation.lat, currentLocation.lng),
-          icon: 'https://tmapapi.sktelecom.com/upload/tmap/marker/pin_r_m_s.png',
-          iconSize: new window.Tmapv2.Size(24, 38),
-          title: '현재 위치'
-        });
-        currentMarker.setMap(map);
-        console.log('✅ 현재 위치 마커 추가 완료');
-      } catch (markerError) {
-        console.warn('⚠️ 마커 추가 실패:', markerError);
-      }
+      addMarker(map, currentLocation, '현재 위치', 'current');
 
       // 지도 클릭 이벤트
       map.addListener('click', (evt: any) => {
@@ -206,23 +195,47 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
     }
   }, [currentLocation, searchStep]);
 
+  // 마커 참조 저장 (중복 방지)
+  const markersRef = useRef<any[]>([]);
+
   // 마커 추가 함수
   const addMarker = (map: any, location: Location, title: string, type: 'start' | 'end' | 'current') => {
+    // 기존 마커 제거 (같은 타입의 마커가 있으면)
+    if (type === 'start' || type === 'end') {
+      markersRef.current = markersRef.current.filter(m => {
+        const markerType = m.getTitle?.();
+        if ((type === 'start' && markerType === '출발지') || 
+            (type === 'end' && markerType === '도착지')) {
+          m.setMap(null);
+          return false;
+        }
+        return true;
+      });
+    }
+
     let iconUrl = 'https://tmapapi.sktelecom.com/upload/tmap/marker/pin_b_m_s.png';
     
     if (type === 'start') {
       iconUrl = 'https://tmapapi.sktelecom.com/upload/tmap/marker/pin_g_m_s.png';
     } else if (type === 'end') {
       iconUrl = 'https://tmapapi.sktelecom.com/upload/tmap/marker/pin_r_m_s.png';
+    } else if (type === 'current') {
+      iconUrl = 'https://tmapapi.sktelecom.com/upload/tmap/marker/pin_r_m_s.png';
     }
 
-    const marker = new window.Tmapv2.Marker({
-      position: new window.Tmapv2.LatLng(location.lat, location.lng),
-      icon: iconUrl,
-      iconSize: new window.Tmapv2.Size(24, 38),
-      title: title
-    });
-    marker.setMap(map);
+    try {
+      const marker = new window.Tmapv2.Marker({
+        position: new window.Tmapv2.LatLng(location.lat, location.lng),
+        icon: iconUrl,
+        iconSize: new window.Tmapv2.Size(24, 38),
+        title: title
+      });
+      marker.setMap(map);
+      markersRef.current.push(marker);
+      console.log(`✅ ${type} 마커 추가 완료:`, location);
+    } catch (error) {
+      console.error(`❌ ${type} 마커 추가 실패:`, error);
+    }
   };
 
   // 내 위치로 이동
@@ -310,6 +323,14 @@ export const TmapNavigationComponent: React.FC<TmapNavigationComponentProps> = (
     setSearchStep('start');
     setErrorCount(0);
     clearRoute();
+    
+    // 마커 제거
+    markersRef.current.forEach(marker => {
+      if (marker && marker.setMap) {
+        marker.setMap(null);
+      }
+    });
+    markersRef.current = [];
     
     if (tmapRef.current) {
       tmapRef.current.destroy();
