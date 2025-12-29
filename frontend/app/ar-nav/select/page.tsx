@@ -12,9 +12,11 @@ import { ToastContainer } from '@/components/Toast';
 import { PlaceSearch, type PlaceResult } from '@/components/PlaceSearch';
 import { DestinationSearch } from '@/components/DestinationSearch';
 import { GoogleMap } from '@/components/GoogleMap';
+import { TmapMap } from '@/components/TmapMap';
 import { CurrentLocationButton } from '@/components/CurrentLocationButton';
 import { isGoogleMapsAvailable } from '@/lib/googleMaps';
 import { useCurrentLocation } from '@/hooks/useCurrentLocation';
+import { arNavigationManager } from '@/services/ARNavigationManager';
 
 export default function ArNavSelectPage() {
   const router = useRouter();
@@ -34,8 +36,18 @@ export default function ArNavSelectPage() {
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [isFavorite, setIsFavorite] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
+  const [isKorea, setIsKorea] = useState(false);
   
   const { currentLocation: gpsLocation, getCurrentLocation } = useCurrentLocation();
+
+  // 한국 여부 확인
+  useEffect(() => {
+    const location = currentLocation || gpsLocation || mapCenter;
+    if (location) {
+      const koreaCheck = arNavigationManager.checkIsKorea(location.lat, location.lng);
+      setIsKorea(koreaCheck);
+    }
+  }, [currentLocation, gpsLocation, mapCenter]);
 
   // 페이지 언마운트 시 상태 초기화
   useEffect(() => {
@@ -421,32 +433,65 @@ export default function ArNavSelectPage() {
       <div className="flex-1 flex flex-col sm:flex-row min-h-0">
         {/* 지도 영역 */}
         <div className="flex-1 min-h-[300px] sm:min-h-0">
-          <GoogleMap
-            center={mapCenter}
-            zoom={selectedPlace ? 16 : 14}
-            markers={[
-              // 현재 위치 마커 (GPS 위치)
-              ...(currentLocation ? [{
-                position: currentLocation,
-                label: '📍',
-                title: '현재 위치',
-              }] : []),
-              // 시작 위치 마커
-              ...(startLocation ? [{
-                position: startLocation,
-                label: '시작',
-                title: '시작 위치',
-              }] : []),
-              // 도착 위치 마커
-              ...(destinationLocation ? [{
-                position: destinationLocation,
-                label: '도착',
-                title: selectedPlace?.name || '도착 위치',
-              }] : []),
-            ]}
-            onMapClick={handleMapClick}
-            className="w-full h-full"
-          />
+          {/* 한국이면 TMAP, 아니면 Google Maps */}
+          {isKorea ? (
+            <TmapMap
+              center={mapCenter}
+              zoom={selectedPlace ? 16 : 14}
+              markers={[
+                // 현재 위치 마커 (GPS 위치)
+                ...(currentLocation ? [{
+                  position: currentLocation,
+                  label: '📍',
+                  title: '현재 위치',
+                  type: 'current' as const,
+                }] : []),
+                // 시작 위치 마커
+                ...(startLocation ? [{
+                  position: startLocation,
+                  label: '시작',
+                  title: '시작 위치',
+                  type: 'start' as const,
+                }] : []),
+                // 도착 위치 마커
+                ...(destinationLocation ? [{
+                  position: destinationLocation,
+                  label: '도착',
+                  title: selectedPlace?.name || '도착 위치',
+                  type: 'end' as const,
+                }] : []),
+              ]}
+              onMapClick={handleMapClick}
+              className="w-full h-full"
+            />
+          ) : (
+            <GoogleMap
+              center={mapCenter}
+              zoom={selectedPlace ? 16 : 14}
+              markers={[
+                // 현재 위치 마커 (GPS 위치)
+                ...(currentLocation ? [{
+                  position: currentLocation,
+                  label: '📍',
+                  title: '현재 위치',
+                }] : []),
+                // 시작 위치 마커
+                ...(startLocation ? [{
+                  position: startLocation,
+                  label: '시작',
+                  title: '시작 위치',
+                }] : []),
+                // 도착 위치 마커
+                ...(destinationLocation ? [{
+                  position: destinationLocation,
+                  label: '도착',
+                  title: selectedPlace?.name || '도착 위치',
+                }] : []),
+              ]}
+              onMapClick={handleMapClick}
+              className="w-full h-full"
+            />
+          )}
         </div>
 
         {/* 위치 정보 및 컨트롤 패널 */}

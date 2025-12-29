@@ -194,16 +194,23 @@ export default function ArNavRunPage() {
   const saveNavigationPointToAPI = useCallback(async () => {
     if (!currentLocation || !currentSessionId || !targetLocation) return;
 
+    // session_id가 유효한 UUID 형식인지 확인
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(currentSessionId)) {
+      console.warn('유효하지 않은 session_id 형식:', currentSessionId);
+      return;
+    }
+
     try {
       await saveNavigationPoint({
         session_id: currentSessionId,
-        latitude: currentLocation.lat,
-        longitude: currentLocation.lng,
-        heading: heading || undefined,
-        accuracy: accuracy || undefined,
-        distance_to_target: distance || undefined,
-        bearing: bearing || undefined,
-        relative_angle: relativeAngle || undefined,
+        latitude: Number(currentLocation.lat.toFixed(8)), // Decimal 타입 호환을 위해 정밀도 제한
+        longitude: Number(currentLocation.lng.toFixed(8)),
+        heading: heading !== null ? Number(heading.toFixed(2)) : undefined,
+        accuracy: accuracy !== null ? Number(accuracy.toFixed(2)) : undefined,
+        distance_to_target: distance !== null ? Number(distance.toFixed(2)) : undefined,
+        bearing: bearing !== null ? Number(bearing.toFixed(2)) : undefined,
+        relative_angle: relativeAngle !== null ? Number(relativeAngle.toFixed(2)) : undefined,
       });
     } catch (err) {
       // ApiError인 경우 상세 정보 로깅
@@ -216,6 +223,11 @@ export default function ArNavRunPage() {
         // 재시도 가능한 에러는 조용히 처리
         if (err.isRetryable) {
           console.warn('네비게이션 포인트 저장 실패 (재시도 가능):', err.message);
+          return;
+        }
+        // 422 에러 (검증 실패)는 데이터 형식 문제일 수 있음
+        if (err.statusCode === 422) {
+          console.warn('네비게이션 포인트 저장 실패 (데이터 검증 실패):', err.message);
           return;
         }
       }
@@ -345,25 +357,33 @@ export default function ArNavRunPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
-      {/* 카메라 프리뷰 */}
-      <div className="absolute inset-0">
+    <div className="relative w-full h-screen bg-black overflow-hidden">
+      {/* 카메라 프리뷰 - 배경 레이어 (z-0) */}
+      <div className="absolute inset-0 z-0">
         {cameraActive ? (
           <video
             ref={videoRef}
             autoPlay
             playsInline
+            muted
             className="w-full h-full object-cover"
+            style={{ transform: 'scaleX(-1)' }} // 거울 모드
           />
         ) : (
           <div className="w-full h-full bg-gray-900 flex items-center justify-center">
-            <p className="text-gray-500">카메라 프리뷰 영역</p>
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-500">카메라 로딩 중...</p>
+            </div>
           </div>
         )}
       </div>
 
-      {/* 상단 HUD */}
-      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-sm p-3 sm:p-4 z-10" role="region" aria-label="네비게이션 정보">
+      {/* 카메라 오버레이 배경 (어두운 그라데이션) - z-5 */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 z-5 pointer-events-none" />
+
+      {/* 상단 HUD - 카메라 위 오버레이 (z-30) */}
+      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-sm p-3 sm:p-4 z-30" role="region" aria-label="네비게이션 정보">
         <div className="flex justify-between items-start">
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline gap-1 sm:gap-2">
@@ -465,8 +485,8 @@ export default function ArNavRunPage() {
         </div>
       </div>
 
-      {/* 중앙 화살표 */}
-      <div className="absolute inset-0 flex items-center justify-center z-20" role="img" aria-label={`목적지 방향: ${relativeAngle !== null ? Math.round(relativeAngle) : 0}도`}>
+      {/* 중앙 화살표 - 카메라 위 오버레이 */}
+      <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none" role="img" aria-label={`목적지 방향: ${relativeAngle !== null ? Math.round(relativeAngle) : 0}도`}>
         <ArrowIndicator 
           angle={relativeAngle} 
           distance={distance}
@@ -535,17 +555,17 @@ export default function ArNavRunPage() {
         </div>
       )}
       
-      {/* 실내 모드 표시 */}
+      {/* 실내 모드 표시 - 카메라 위 오버레이 (z-30) */}
       {isIndoor && (
-        <div className="absolute top-4 left-4 bg-blue-600 text-white px-4 py-2 rounded-lg z-30 flex items-center gap-2">
+        <div className="absolute top-4 left-4 bg-blue-600/90 backdrop-blur-md text-white px-4 py-2 rounded-lg z-30 flex items-center gap-2 border border-blue-400/30 shadow-lg">
           <span>🏢</span>
           <span className="font-semibold">실내 모드</span>
         </div>
       )}
       
-      {/* 인식된 POI 표시 */}
+      {/* 인식된 POI 표시 - 카메라 위 오버레이 (z-30) */}
       {recognizedPois.length > 0 && isIndoor && (
-        <div className="absolute top-20 right-4 bg-gray-800/90 text-white p-4 rounded-lg z-30 max-w-xs max-h-64 overflow-y-auto">
+        <div className="absolute top-20 right-4 bg-gray-800/90 backdrop-blur-md text-white p-4 rounded-lg z-30 max-w-xs max-h-64 overflow-y-auto border border-white/20 shadow-2xl">
           <h3 className="font-bold mb-2 text-sm">주변 장소</h3>
           {recognizedPois.slice(0, 5).map((poi) => (
             <div key={poi.id} className="mb-2 p-2 bg-gray-700 rounded text-sm">
@@ -556,17 +576,19 @@ export default function ArNavRunPage() {
         </div>
       )}
       
-      {/* 경로 단계 안내 (카메라 위 오버레이) */}
+      {/* 경로 단계 안내 (카메라 위 오버레이) - z-25 */}
       {useGoogleMaps && !arAction && (
-        <RouteStepIndicator 
-          currentStep={currentStep}
-          nextStep={nextStep}
-          distance={distance}
-        />
+        <div className="z-[25]">
+          <RouteStepIndicator 
+            currentStep={currentStep}
+            nextStep={nextStep}
+            distance={distance}
+          />
+        </div>
       )}
 
-      {/* 하단 컨트롤 */}
-      <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm p-4 sm:p-6 z-10 safe-area-inset-bottom">
+      {/* 하단 컨트롤 - 카메라 위 오버레이 */}
+      <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm p-4 sm:p-6 z-30 safe-area-inset-bottom">
         {/* 현재 위치 찾기 버튼 (작은 버튼) */}
         <div className="mb-3 flex justify-center">
           <CurrentLocationButton

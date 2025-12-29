@@ -25,8 +25,8 @@ export function RouteStepIndicator({ currentStep, nextStep, distance }: RouteSte
   }
 
   return (
-    <div className="absolute bottom-20 left-0 right-0 px-4 z-30 pointer-events-none">
-      <div className="bg-black/80 backdrop-blur-md rounded-lg p-3 border border-white/20 shadow-2xl max-w-md mx-auto">
+    <div className="absolute bottom-20 left-0 right-0 px-4 z-[25] pointer-events-none">
+      <div className="bg-black/90 backdrop-blur-md rounded-lg p-3 border border-white/20 shadow-2xl max-w-md mx-auto">
         {/* 현재 단계 */}
         <div className="flex items-start gap-2">
           <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-sm">

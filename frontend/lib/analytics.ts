@@ -19,15 +19,27 @@ export async function trackEvent(
     return;
   }
 
+  // session_id가 유효한 UUID 형식인지 확인
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(currentSessionId)) {
+    console.warn('유효하지 않은 session_id 형식 (analytics):', currentSessionId);
+    return;
+  }
+
   try {
     await trackAnalyticsEvent({
       session_id: currentSessionId,
       event_type: eventType,
-      event_data: eventData,
+      event_data: eventData || {}, // null 대신 빈 객체 사용
     });
   } catch (error) {
     // 분석 이벤트 실패는 앱 동작에 영향을 주지 않음
-    console.error('Analytics tracking failed:', error);
+    // 422 에러는 데이터 검증 실패일 수 있으므로 조용히 처리
+    if (error instanceof Error && error.message.includes('422')) {
+      console.warn('Analytics tracking failed (validation error):', error.message);
+    } else {
+      console.error('Analytics tracking failed:', error);
+    }
   }
 }
 

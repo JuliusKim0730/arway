@@ -48,27 +48,47 @@ export function useGeolocationWatcher() {
       return newReading.location;
     }
     
-    // 적응형 정확도 임계값 (도보용으로 더 엄격하게)
-    let accuracyThreshold = 80; // 기본값을 80m로 낮춤
+    // 적응형 정확도 임계값 (실제 환경 고려하여 더 관대하게)
+    let accuracyThreshold = 500; // 기본값을 500m로 증가 (실내/지하 환경 고려)
     
     // 최근 위치들의 평균 정확도로 환경 판단
     const recentAccuracies = history.slice(-3).map(h => h.accuracy);
-    const avgAccuracy = recentAccuracies.reduce((a, b) => a + b, 0) / recentAccuracies.length;
+    const avgAccuracy = recentAccuracies.length > 0 
+      ? recentAccuracies.reduce((a, b) => a + b, 0) / recentAccuracies.length 
+      : newReading.accuracy;
     
-    if (avgAccuracy > 80) {
-      // 신호가 약한 환경 (실내/지하) - 여전히 허용하지만 더 엄격
-      accuracyThreshold = 150;
+    if (avgAccuracy > 200) {
+      // 신호가 매우 약한 환경 (실내/지하/건물 내부) - 매우 관대하게 허용
+      accuracyThreshold = 3000; // 3km까지 허용 (최소한의 위치 정보라도 사용)
+    } else if (avgAccuracy > 100) {
+      // 신호가 약한 환경 (실내/지하) - 관대하게 허용
+      accuracyThreshold = 1000; // 1km까지 허용
     } else if (avgAccuracy < 15) {
       // 신호가 매우 좋은 환경 (야외 개방 공간)
-      accuracyThreshold = 50;
+      accuracyThreshold = 100; // 좋은 환경에서는 엄격하게
     } else if (avgAccuracy < 30) {
       // 신호가 좋은 환경 (일반 야외)
-      accuracyThreshold = 60;
+      accuracyThreshold = 200; // 일반 야외에서는 중간 수준
+    } else {
+      // 중간 환경
+      accuracyThreshold = 500; // 기본값
     }
     
-    // 정확도가 너무 낮으면 무시
+    // 정확도가 너무 낮으면 경고만 하고 이전 위치 유지 (완전히 무시하지 않음)
     if (newReading.accuracy > accuracyThreshold) {
-      console.warn(`GPS 정확도가 너무 낮음: ${newReading.accuracy}m (임계값: ${accuracyThreshold}m)`);
+      console.warn(`⚠️ GPS 정확도가 낮음: ${newReading.accuracy.toFixed(1)}m (임계값: ${accuracyThreshold}m) - 이전 위치 유지`);
+      // 정확도가 매우 낮아도 (5km 이상) 최소한의 위치 정보는 사용
+      if (newReading.accuracy > 5000) {
+        console.warn(`⚠️ GPS 정확도가 매우 낮음 (${newReading.accuracy.toFixed(1)}m) - 위치 정보 신뢰도 낮음`);
+      }
+      // 이전 위치를 반환하되, 너무 오래된 경우 새 위치 사용
+      const timeSinceLastUpdate = Date.now() - history[history.length - 1].timestamp;
+      if (timeSinceLastUpdate > 30000) { // 30초 이상 업데이트가 없으면 새 위치 사용
+        console.log('📍 오래된 위치 업데이트 - 낮은 정확도지만 새 위치 사용');
+        history.push(newReading);
+        lastValidLocationRef.current = newReading.location;
+        return newReading.location;
+      }
       return lastValidLocationRef.current;
     }
     

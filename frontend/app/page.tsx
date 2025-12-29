@@ -2,14 +2,62 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { PermissionConsentModal } from '@/components/PermissionConsentModal';
 
 export default function Home() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
+
+  // 권한 확인 및 모달 표시
+  useEffect(() => {
+    const checkPermissions = async () => {
+      // 로컬 스토리지에서 권한 동의 여부 확인
+      const hasConsented = localStorage.getItem('permissions_consented') === 'true';
+      
+      if (hasConsented) {
+        setPermissionsGranted(true);
+        return;
+      }
+
+      // 권한 상태 확인
+      let locationGranted = false;
+      let cameraGranted = false;
+
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const locationStatus = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+          locationGranted = locationStatus.state === 'granted';
+        } catch (e) {
+          // 지원하지 않는 브라우저
+        }
+
+        try {
+          const cameraStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
+          cameraGranted = cameraStatus.state === 'granted';
+        } catch (e) {
+          // 지원하지 않는 브라우저
+        }
+      }
+
+      // 둘 다 허용되지 않았으면 모달 표시
+      if (!locationGranted || !cameraGranted) {
+        setShowPermissionModal(true);
+      } else {
+        setPermissionsGranted(true);
+        localStorage.setItem('permissions_consented', 'true');
+      }
+    };
+
+    checkPermissions();
+  }, []);
 
   // NextAuth 동적 로딩
   useEffect(() => {
+    if (!permissionsGranted) return; // 권한 동의 전에는 실행하지 않음
+
     const initAuth = async () => {
       try {
         // NextAuth가 제대로 설정되어 있는지 확인
@@ -31,7 +79,7 @@ export default function Home() {
     // 2초 후에 인증 상태 확인 (NextAuth 초기화 대기)
     const timer = setTimeout(initAuth, 2000);
     return () => clearTimeout(timer);
-  }, [router]);
+  }, [router, permissionsGranted]);
 
   // Google 로그인 핸들러
   const handleLogin = async () => {
@@ -73,6 +121,24 @@ export default function Home() {
           </div>
         </div>
       </main>
+    );
+  }
+
+  // 권한 동의 모달
+  if (showPermissionModal) {
+    return (
+      <PermissionConsentModal
+        onConsent={() => {
+          setShowPermissionModal(false);
+          setPermissionsGranted(true);
+          localStorage.setItem('permissions_consented', 'true');
+        }}
+        onSkip={() => {
+          setShowPermissionModal(false);
+          setPermissionsGranted(true);
+          localStorage.setItem('permissions_consented', 'true');
+        }}
+      />
     );
   }
 

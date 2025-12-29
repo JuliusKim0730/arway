@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { PermissionConsentModal } from '@/components/PermissionConsentModal';
 
 export default function ArNavStartPage() {
   const router = useRouter();
@@ -12,8 +13,48 @@ export default function ArNavStartPage() {
     geolocation: boolean;
     camera: boolean;
   } | null>(null);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
 
   useEffect(() => {
+    // 권한 확인
+    const checkPermissions = async () => {
+      const hasConsented = localStorage.getItem('permissions_consented') === 'true';
+      
+      if (hasConsented) {
+        setPermissionsGranted(true);
+      } else {
+        // 권한 상태 확인
+        let locationGranted = false;
+        let cameraGranted = false;
+
+        if (navigator.permissions && navigator.permissions.query) {
+          try {
+            const locationStatus = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+            locationGranted = locationStatus.state === 'granted';
+          } catch (e) {}
+
+          try {
+            const cameraStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
+            cameraGranted = cameraStatus.state === 'granted';
+          } catch (e) {}
+        }
+
+        if (!locationGranted || !cameraGranted) {
+          setShowPermissionModal(true);
+        } else {
+          setPermissionsGranted(true);
+          localStorage.setItem('permissions_consented', 'true');
+        }
+      }
+    };
+
+    checkPermissions();
+  }, []);
+
+  useEffect(() => {
+    if (!permissionsGranted) return;
+
     // 로그인 체크
     if (status === 'unauthenticated') {
       router.push('/auth/signin?callbackUrl=/ar-nav');
@@ -25,14 +66,32 @@ export default function ArNavStartPage() {
       geolocation: !!navigator.geolocation,
       camera: !!navigator.mediaDevices?.getUserMedia,
     });
-  }, [status, router]);
+  }, [status, router, permissionsGranted]);
 
   const handleStart = () => {
     router.push('/ar-nav/select');
   };
 
+  // 권한 동의 모달
+  if (showPermissionModal) {
+    return (
+      <PermissionConsentModal
+        onConsent={() => {
+          setShowPermissionModal(false);
+          setPermissionsGranted(true);
+          localStorage.setItem('permissions_consented', 'true');
+        }}
+        onSkip={() => {
+          setShowPermissionModal(false);
+          setPermissionsGranted(true);
+          localStorage.setItem('permissions_consented', 'true');
+        }}
+      />
+    );
+  }
+
   // 로딩 중이거나 로그인되지 않은 경우
-  if (status === 'loading' || status === 'unauthenticated') {
+  if (!permissionsGranted || status === 'loading' || status === 'unauthenticated') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
