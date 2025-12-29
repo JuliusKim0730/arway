@@ -13,6 +13,7 @@ interface TmapMapProps {
     type?: 'start' | 'end' | 'current';
   }>;
   onMapClick?: (location: { lat: number; lng: number }) => void;
+  onError?: (error: string) => void;
   className?: string;
 }
 
