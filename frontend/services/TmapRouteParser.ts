@@ -11,7 +11,7 @@ interface Location {
 interface TmapFeature {
   geometry: {
     type: string;
-    coordinates: number[][];
+    coordinates: number[] | number[][]; // Point는 number[], LineString은 number[][]
   };
   properties: {
     totalDistance?: number;
@@ -68,22 +68,37 @@ export function parseTmapRouteResponse(
 
   // 좌표 추출 및 경로 단계 생성
   data.features.forEach((feature, index) => {
-    // 경로 좌표 추출
+    // 경로 좌표 추출 (LineString)
     if (feature.geometry.type === 'LineString' && feature.geometry.coordinates) {
-      feature.geometry.coordinates.forEach((coord) => {
-        path.push({
-          lat: coord[1],
-          lng: coord[0],
+      const coords = feature.geometry.coordinates;
+      // LineString의 경우 coordinates는 number[][]
+      if (Array.isArray(coords) && coords.length > 0 && Array.isArray(coords[0])) {
+        (coords as number[][]).forEach((coord) => {
+          if (coord.length >= 2) {
+            path.push({
+              lat: coord[1],
+              lng: coord[0],
+            });
+          }
         });
-      });
+      }
     }
 
     // Point 타입의 경우 단계 정보 추출
-    if (feature.geometry.type === 'Point') {
-      const coord = feature.geometry.coordinates;
+    if (feature.geometry.type === 'Point' && feature.geometry.coordinates) {
+      const coords = feature.geometry.coordinates;
+      // Point의 경우 coordinates는 number[] (단일 좌표)
+      const coordArray = Array.isArray(coords) && coords.length > 0 && !Array.isArray(coords[0])
+        ? (coords as number[])
+        : Array.isArray(coords) && coords.length > 0 && Array.isArray(coords[0])
+        ? (coords as number[][])[0]
+        : null;
+      
+      if (!coordArray || coordArray.length < 2) return;
+      
       const pointLocation: Location = {
-        lat: coord[1],
-        lng: coord[0],
+        lat: coordArray[1],
+        lng: coordArray[0],
       };
 
       // 이전 Point까지의 거리 계산
@@ -103,10 +118,19 @@ export function parseTmapRouteResponse(
       if (index < data.features.length - 1) {
         const nextFeature = data.features[index + 1];
         if (nextFeature.geometry.type === 'Point' && nextFeature.geometry.coordinates) {
-          nextLocation = {
-            lat: nextFeature.geometry.coordinates[1],
-            lng: nextFeature.geometry.coordinates[0],
-          };
+          const nextCoords = nextFeature.geometry.coordinates;
+          const nextCoordArray = Array.isArray(nextCoords) && nextCoords.length > 0 && !Array.isArray(nextCoords[0])
+            ? (nextCoords as number[])
+            : Array.isArray(nextCoords) && nextCoords.length > 0 && Array.isArray(nextCoords[0])
+            ? (nextCoords as number[][])[0]
+            : null;
+          
+          if (nextCoordArray && nextCoordArray.length >= 2) {
+            nextLocation = {
+              lat: nextCoordArray[1],
+              lng: nextCoordArray[0],
+            };
+          }
         }
       }
 

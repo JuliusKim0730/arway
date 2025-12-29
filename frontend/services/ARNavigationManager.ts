@@ -22,7 +22,7 @@ interface TmapResponse {
   features: Array<{
     geometry: {
       type: string;
-      coordinates: number[][];
+      coordinates: number[] | number[][]; // Point는 number[], LineString은 number[][]
     };
     properties: {
       totalDistance?: number;
@@ -398,18 +398,33 @@ export class ARNavigationManager {
     data.features.forEach((feature, index) => {
       // 경로 좌표 추출 (LineString)
       if (feature.geometry.type === "LineString" && feature.geometry.coordinates) {
-        feature.geometry.coordinates.forEach(coord => {
-          path.push({ 
-            lat: coord[1], 
-            lng: coord[0] 
+        const coords = feature.geometry.coordinates;
+        // LineString의 경우 coordinates는 number[][]
+        if (Array.isArray(coords) && coords.length > 0 && Array.isArray(coords[0])) {
+          (coords as number[][]).forEach(coord => {
+            if (coord.length >= 2) {
+              path.push({ 
+                lat: coord[1], 
+                lng: coord[0] 
+              });
+            }
           });
-        });
+        }
       }
 
       // Point 타입의 경우 단계 정보 추출
       if (feature.geometry.type === "Point" && feature.geometry.coordinates) {
-        const coord = feature.geometry.coordinates;
-        const pointLocation = { lat: coord[1], lng: coord[0] };
+        const coords = feature.geometry.coordinates;
+        // Point의 경우 coordinates는 number[] (단일 좌표)
+        const coordArray = Array.isArray(coords) && coords.length > 0 && !Array.isArray(coords[0])
+          ? (coords as number[])
+          : Array.isArray(coords) && coords.length > 0 && Array.isArray(coords[0])
+          ? (coords as number[][])[0]
+          : null;
+        
+        if (!coordArray || coordArray.length < 2) return;
+        
+        const pointLocation = { lat: coordArray[1], lng: coordArray[0] };
         
         // 안내 문구 생성
         let instruction = feature.properties.description || '';
