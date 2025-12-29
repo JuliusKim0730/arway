@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
 import traceback
-from app.api.v1 import destinations, sessions, navigation_points, feedback, analytics, users, favorites, auth
+from app.api.v1 import destinations, sessions, navigation_points, feedback, analytics, users, favorites, auth, scq, geofences, indoor_maps, pois, buildings
 from app.config import settings
 
 # 로깅 설정
@@ -58,6 +58,11 @@ app.include_router(navigation_points.router, prefix="/api/v1/navigation-points",
 app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["feedback"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
 app.include_router(favorites.router, prefix="/api/v1/favorites", tags=["favorites"])
+app.include_router(scq.router, prefix="/api/v1/scq", tags=["scq"])
+app.include_router(buildings.router, prefix="/api/v1/buildings", tags=["buildings"])
+app.include_router(geofences.router, prefix="/api/v1/geofences", tags=["geofences"])
+app.include_router(indoor_maps.router, prefix="/api/v1/indoor-maps", tags=["indoor-maps"])
+app.include_router(pois.router, prefix="/api/v1/pois", tags=["pois"])
 
 @app.get("/")
 async def root():

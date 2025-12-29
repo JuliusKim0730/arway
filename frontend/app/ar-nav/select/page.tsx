@@ -3,13 +3,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createSession, syncUserFromGoogle, ApiError } from '@/lib/api';
+import { createSession, syncUserFromGoogle, ApiError, fetchDestinations, addFavorite, removeFavorite, fetchUserFavorites, checkFavorite, type Destination, type Favorite } from '@/lib/api';
 import { useNavigationStore } from '@/store/navigationStore';
 import { useAuth } from '@/hooks/useAuth';
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics';
 import { useToast } from '@/hooks/useToast';
 import { ToastContainer } from '@/components/Toast';
 import { PlaceSearch, type PlaceResult } from '@/components/PlaceSearch';
+import { DestinationSearch } from '@/components/DestinationSearch';
 import { GoogleMap } from '@/components/GoogleMap';
 import { CurrentLocationButton } from '@/components/CurrentLocationButton';
 import { isGoogleMapsAvailable } from '@/lib/googleMaps';
@@ -29,6 +30,10 @@ export default function ArNavSelectPage() {
   const [loading, setLoading] = useState(false);
   const [clickedLocation, setClickedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [showLocationOptions, setShowLocationOptions] = useState(false);
+  const [selectedDestination, setSelectedDestination] = useState<Destination | null>(null);
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
   
   const { currentLocation: gpsLocation, getCurrentLocation } = useCurrentLocation();
 
@@ -68,6 +73,84 @@ export default function ArNavSelectPage() {
       setMapCenter(gpsLocation);
     }
   }, [gpsLocation, startLocation]);
+
+  // 즐겨찾기 목록 로드
+  useEffect(() => {
+    if (user?.id) {
+      loadFavorites();
+    }
+  }, [user?.id]);
+
+  // 선택된 목적지가 즐겨찾기에 있는지 확인
+  useEffect(() => {
+    if (selectedDestination && user?.id) {
+      checkIsFavorite(selectedDestination.id);
+    } else {
+      setIsFavorite(false);
+    }
+  }, [selectedDestination, user?.id]);
+
+  const loadFavorites = async () => {
+    if (!user?.id) return;
+    try {
+      const favs = await fetchUserFavorites(user.id);
+      setFavorites(favs);
+    } catch (err) {
+      console.error('즐겨찾기 로드 실패:', err);
+    }
+  };
+
+  const checkIsFavorite = async (destinationId: string) => {
+    if (!user?.id) return;
+    try {
+      const favorite = await checkFavorite(user.id, destinationId);
+      setIsFavorite(!!favorite);
+    } catch (err) {
+      setIsFavorite(false);
+    }
+  };
+
+  const handleToggleFavorite = async () => {
+    if (!user?.id || !selectedDestination) return;
+
+    try {
+      if (isFavorite) {
+        await removeFavorite(user.id, selectedDestination.id);
+        setIsFavorite(false);
+        toast.success('즐겨찾기에서 제거되었습니다.');
+        await loadFavorites();
+      } else {
+        await addFavorite(user.id, selectedDestination.id);
+        setIsFavorite(true);
+        toast.success('즐겨찾기에 추가되었습니다.');
+        await loadFavorites();
+      }
+    } catch (err) {
+      console.error('즐겨찾기 토글 실패:', err);
+      toast.error('즐겨찾기 처리에 실패했습니다.');
+    }
+  };
+
+  // 백엔드 목적지 선택 핸들러
+  const handleDestinationSelect = (destination: Destination) => {
+    setSelectedDestination(destination);
+    setSelectedPlace(null); // Google Places 선택 해제
+    
+    const destPlace: PlaceResult = {
+      place_id: destination.id,
+      name: destination.name,
+      formatted_address: destination.address || `${destination.latitude}, ${destination.longitude}`,
+      geometry: {
+        location: {
+          lat: destination.latitude,
+          lng: destination.longitude,
+        },
+      },
+      types: [],
+    };
+    
+    handlePlaceSelect(destPlace);
+  };
 
   // 장소 선택 핸들러
   const handlePlaceSelect = (place: PlaceResult) => {
@@ -178,9 +261,10 @@ export default function ArNavSelectPage() {
         // 네비게이션 세션 생성 시도
         const session = await createSession({
           user_id: backendUser.id,
+          destination_id: selectedDestination?.id,
           place_id: selectedPlace?.place_id,
-          place_name: selectedPlace?.name || '지도에서 선택한 위치',
-          place_address: selectedPlace?.formatted_address || `${destinationLocation.lat.toFixed(6)}, ${destinationLocation.lng.toFixed(6)}`,
+          place_name: selectedPlace?.name || selectedDestination?.name || '지도에서 선택한 위치',
+          place_address: selectedPlace?.formatted_address || selectedDestination?.address || `${destinationLocation.lat.toFixed(6)}, ${destinationLocation.lng.toFixed(6)}`,
           destination_latitude: destinationLocation.lat,
           destination_longitude: destinationLocation.lng,
           start_latitude: startLocation.lat,
@@ -299,9 +383,38 @@ export default function ArNavSelectPage() {
           currentLocation={currentLocation}
           placeholder="장소 검색 (예: 강남역, 서울시청, 스타벅스)"
         />
-        <CurrentLocationButton
-          onLocationFound={handleLocationFound}
+        <DestinationSearch
+          onDestinationSelect={handleDestinationSelect}
         />
+        <div className="flex gap-2">
+          <CurrentLocationButton
+            onLocationFound={handleLocationFound}
+          />
+          {user?.id && (
+            <button
+              onClick={() => setShowFavorites(!showFavorites)}
+              className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+            >
+              ⭐ 즐겨찾기 {showFavorites ? '숨기기' : '보기'}
+            </button>
+          )}
+        </div>
+        {showFavorites && favorites.length > 0 && (
+          <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
+            {favorites.map((fav) => (
+              <button
+                key={fav.id}
+                onClick={() => fav.destination && handleDestinationSelect(fav.destination)}
+                className="w-full px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-left transition-colors"
+              >
+                <div className="text-sm font-medium text-white">{fav.destination?.name}</div>
+                {fav.destination?.address && (
+                  <div className="text-xs text-gray-400 mt-1">{fav.destination.address}</div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 지도 및 선택된 장소 정보 */}
@@ -351,14 +464,25 @@ export default function ArNavSelectPage() {
 
             {/* 도착 위치 */}
             <div className="p-3 bg-gray-700 rounded-lg">
-              <p className="text-xs text-gray-400 mb-1">도착 위치</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-gray-400">도착 위치</p>
+                {selectedDestination && user?.id && (
+                  <button
+                    onClick={handleToggleFavorite}
+                    className="text-yellow-400 hover:text-yellow-300 transition-colors"
+                    aria-label={isFavorite ? '즐겨찾기 제거' : '즐겨찾기 추가'}
+                  >
+                    {isFavorite ? '⭐' : '☆'}
+                  </button>
+                )}
+              </div>
               {destinationLocation ? (
                 <div>
                   <p className="text-sm text-white font-medium mb-1">
-                    {selectedPlace?.name || '지도에서 선택한 위치'}
+                    {selectedPlace?.name || selectedDestination?.name || '지도에서 선택한 위치'}
                   </p>
                   <p className="text-xs text-gray-400">
-                    {selectedPlace?.formatted_address || `${destinationLocation.lat.toFixed(6)}, ${destinationLocation.lng.toFixed(6)}`}
+                    {selectedPlace?.formatted_address || selectedDestination?.address || `${destinationLocation.lat.toFixed(6)}, ${destinationLocation.lng.toFixed(6)}`}
                   </p>
                   {selectedPlace?.rating && (
                     <div className="flex items-center gap-1 mt-2">
@@ -368,6 +492,9 @@ export default function ArNavSelectPage() {
                         {selectedPlace.user_ratings_total && ` (${selectedPlace.user_ratings_total})`}
                       </span>
                     </div>
+                  )}
+                  {selectedDestination?.description && (
+                    <p className="text-xs text-gray-500 mt-1">{selectedDestination.description}</p>
                   )}
                 </div>
               ) : (

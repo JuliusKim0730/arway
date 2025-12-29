@@ -35,7 +35,7 @@ export function GoogleMap({
   const markersRef = useRef<any[]>([]);
   const clickListenerRef = useRef<any>(null);
 
-  // Google Maps API 로드 (전역 스크립트 로드 상태 관리)
+  // Google Maps API 로드 (전역 스크립트 로드 상태 관리 + 재시도 로직)
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     
@@ -63,63 +63,97 @@ export function GoogleMap({
       return () => clearInterval(checkInterval);
     }
 
-    // 스크립트 로드 시작 표시
-    (window as any)[loadingKey] = true;
+    // 재시도 로직
+    let retryCount = 0;
+    const maxRetries = 3;
+    const retryDelay = 2000; // 2초
 
-    // 전역 콜백 함수 (Google Maps API가 찾을 수 있도록 window에 등록)
-    const callbackName = 'initGoogleMaps';
-    
-    // 이미 콜백이 등록되어 있으면 대기
-    if ((window as any)[callbackName]) {
-      const checkInterval = setInterval(() => {
-        if (window.google && window.google.maps) {
-          setIsLoaded(true);
-          clearInterval(checkInterval);
-        }
-      }, 100);
-      return () => clearInterval(checkInterval);
-    }
+    const loadGoogleMapsScript = (attempt: number = 1): void => {
+      // 스크립트 로드 시작 표시
+      (window as any)[loadingKey] = true;
 
-    // 전역 콜백 함수 등록
-    (window as any)[callbackName] = () => {
-      setIsLoaded(true);
-      delete (window as any)[callbackName];
-      delete (window as any)[loadingKey];
-    };
-
-    // 스크립트 로드 (async 속성 명시적 사용)
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,marker&callback=${callbackName}`;
-    script.async = true; // 명시적 async 설정
-    script.defer = true;
-    script.id = 'google-maps-script';
-
-    script.onerror = () => {
-      setError('Google Maps API를 로드할 수 없습니다.');
-      delete (window as any)[callbackName];
-      delete (window as any)[loadingKey];
-    };
-
-    // 이미 같은 스크립트가 있는지 확인
-    const existingScript = document.getElementById('google-maps-script');
-    if (!existingScript) {
-      document.head.appendChild(script);
-    } else {
-      // 이미 있으면 완료 대기
-      const checkInterval = setInterval(() => {
-        if (window.google && window.google.maps) {
-          setIsLoaded(true);
+      // 전역 콜백 함수 (Google Maps API가 찾을 수 있도록 window에 등록)
+      const callbackName = `initGoogleMaps_${Date.now()}`;
+      
+      // 타임아웃 설정 (30초)
+      const timeoutId = setTimeout(() => {
+        if (attempt < maxRetries) {
+          console.warn(`Google Maps API 로드 타임아웃 (시도 ${attempt}/${maxRetries}), 재시도 중...`);
           delete (window as any)[callbackName];
-          clearInterval(checkInterval);
+          delete (window as any)[loadingKey];
+          setTimeout(() => loadGoogleMapsScript(attempt + 1), retryDelay);
+        } else {
+          setError('Google Maps API를 로드할 수 없습니다. 인터넷 연결을 확인하거나 잠시 후 다시 시도해주세요.');
+          delete (window as any)[callbackName];
+          delete (window as any)[loadingKey];
         }
-      }, 100);
-      return () => {
-        clearInterval(checkInterval);
+      }, 30000);
+
+      // 전역 콜백 함수 등록
+      (window as any)[callbackName] = () => {
+        clearTimeout(timeoutId);
+        setIsLoaded(true);
+        delete (window as any)[callbackName];
+        delete (window as any)[loadingKey];
       };
-    }
+
+      // 스크립트 로드 (async 속성 명시적 사용)
+      const script = document.createElement('script');
+      // 해외 접근 문제를 위한 대체 URL 시도 (첫 번째 시도는 기본 URL)
+      const baseUrl = attempt === 1 
+        ? 'https://maps.googleapis.com/maps/api/js'
+        : 'https://maps.googleapis.com/maps/api/js'; // 필요시 다른 CDN URL 시도 가능
+      
+      script.src = `${baseUrl}?key=${apiKey}&libraries=places,marker&callback=${callbackName}`;
+      script.async = true;
+      script.defer = true;
+      script.id = `google-maps-script-${attempt}`;
+
+      script.onerror = () => {
+        clearTimeout(timeoutId);
+        delete (window as any)[callbackName];
+        delete (window as any)[loadingKey];
+        
+        // 기존 스크립트 제거
+        const existingScript = document.getElementById(`google-maps-script-${attempt}`);
+        if (existingScript) {
+          existingScript.remove();
+        }
+
+        if (attempt < maxRetries) {
+          console.warn(`Google Maps API 로드 실패 (시도 ${attempt}/${maxRetries}), 재시도 중...`);
+          setTimeout(() => loadGoogleMapsScript(attempt + 1), retryDelay);
+        } else {
+          setError('Google Maps API를 로드할 수 없습니다. 인터넷 연결을 확인하거나 잠시 후 다시 시도해주세요.');
+        }
+      };
+
+      // 이미 같은 스크립트가 있는지 확인
+      const existingScript = document.getElementById(`google-maps-script-${attempt}`);
+      if (!existingScript) {
+        document.head.appendChild(script);
+      } else {
+        // 이미 있으면 완료 대기
+        const checkInterval = setInterval(() => {
+          if (window.google && window.google.maps) {
+            clearTimeout(timeoutId);
+            setIsLoaded(true);
+            delete (window as any)[callbackName];
+            clearInterval(checkInterval);
+          }
+        }, 100);
+        
+        // 타임아웃 시 interval 정리
+        setTimeout(() => {
+          clearInterval(checkInterval);
+        }, 30000);
+      }
+    };
+
+    loadGoogleMapsScript();
 
     return () => {
-      // cleanup은 스크립트를 제거하지 않음
+      // cleanup은 스크립트를 제거하지 않음 (다른 컴포넌트에서 사용할 수 있음)
     };
   }, []);
 
@@ -266,8 +300,19 @@ export function GoogleMap({
 
   if (error) {
     return (
-      <div className={`${className} flex items-center justify-center bg-gray-100 text-gray-600`}>
-        <p>{error}</p>
+      <div className={`${className} flex flex-col items-center justify-center bg-gray-100 text-gray-600 p-4`}>
+        <p className="text-center mb-2">{error}</p>
+        <button
+          onClick={() => {
+            setError(null);
+            setIsLoaded(false);
+            // 페이지 새로고침으로 재시도
+            window.location.reload();
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          새로고침
+        </button>
       </div>
     );
   }

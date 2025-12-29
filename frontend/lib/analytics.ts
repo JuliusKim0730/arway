@@ -46,5 +46,6 @@ export const AnalyticsEvents = {
   GPS_LOCATION_FOUND: 'gps_location_found',
   HEADING_ERROR: 'heading_error',
   SEARCH_PERFORMED: 'search_performed',
+  INDOOR_MODE_ACTIVATED: 'indoor_mode_activated',
 } as const;
 

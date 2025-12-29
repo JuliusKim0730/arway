@@ -17,6 +17,10 @@ import { ToastContainer } from '@/components/Toast';
 import { isGoogleMapsAvailable } from '@/lib/googleMaps';
 import { useHaptic } from '@/hooks/useHaptic';
 import { debugARNav } from '@/lib/debugARNav';
+import { SCQIntegration } from '@/components/SCQIntegration';
+import { useSCQData } from '@/hooks/useSCQData';
+import { ARActionGuidance, POI } from '@/lib/scq/types';
+import { decodePolyline } from '@/lib/polyline';
 
 export default function ArNavRunPage() {
   const router = useRouter();
@@ -49,6 +53,17 @@ export default function ArNavRunPage() {
   const toast = useToast();
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const haptic = useHaptic();
+  
+  // SCQ 상태
+  const [isIndoor, setIsIndoor] = useState(false);
+  const [arAction, setArAction] = useState<ARActionGuidance | null>(null);
+  const [recognizedPois, setRecognizedPois] = useState<POI[]>([]);
+  
+  // SCQ 데이터 로드
+  const { geofences, pois: poiDatabase, loading: scqDataLoading } = useSCQData({
+    currentLocation: currentLocation || undefined,
+    enabled: !!currentLocation,
+  });
   
   // 도착 감지 관련 상태
   const arrivalCheckStartRef = useRef<number | null>(null);
@@ -458,8 +473,91 @@ export default function ArNavRunPage() {
         />
       </div>
 
+      {/* SCQ 통합 */}
+      <SCQIntegration
+        route={googleRoute ? {
+          steps: googleRoute.steps.map(step => ({
+            distance: step.distance || 0,
+            instruction: step.instruction || '',
+            startLocation: {
+              lat: step.startLocation.lat,
+              lng: step.startLocation.lng,
+            },
+            endLocation: {
+              lat: step.endLocation.lat,
+              lng: step.endLocation.lng,
+            },
+            bearing: step.bearing || 0,
+          })),
+          polyline: googleRoute.polyline ? 
+            decodePolyline(googleRoute.polyline) : undefined,
+        } : undefined}
+        geofences={geofences}
+        poiDatabase={poiDatabase}
+        userGoal={targetLocation ? {
+          // 목적지 POI ID는 나중에 확장 가능
+        } : undefined}
+        onIndoorModeChange={(indoor) => {
+          setIsIndoor(indoor);
+          if (indoor) {
+            toast.info('실내 모드로 전환되었습니다');
+            trackEvent(AnalyticsEvents.INDOOR_MODE_ACTIVATED);
+          }
+        }}
+        onARActionChange={(action) => {
+          setArAction(action);
+        }}
+        onPOIChange={(pois) => {
+          setRecognizedPois(pois);
+        }}
+      />
+      
+      {/* SCQ AR 행동 지시 표시 */}
+      {arAction && (
+        <div className="absolute bottom-32 left-1/2 transform -translate-x-1/2 bg-black/90 text-white px-6 py-4 rounded-lg z-30 max-w-sm">
+          <div className="text-2xl font-bold mb-2 text-center">
+            {arAction.action === 'GO_STRAIGHT' && '⬆️'}
+            {arAction.action === 'TURN_LEFT' && '⬅️'}
+            {arAction.action === 'TURN_RIGHT' && '➡️'}
+            {arAction.action === 'TAKE_ESCALATOR' && '🔼'}
+            {arAction.action === 'TAKE_ELEVATOR' && '🛗'}
+            {arAction.action === 'GO_UPSTAIRS' && '⬆️'}
+            {arAction.action === 'GO_DOWNSTAIRS' && '⬇️'}
+            {arAction.action === 'ENTER' && '🚪'}
+            {arAction.action === 'EXIT' && '🚪'}
+          </div>
+          <div className="text-lg text-center">{arAction.description || arAction.action}</div>
+          {arAction.distanceToAction > 0 && (
+            <div className="text-sm text-gray-300 mt-1 text-center">
+              {Math.round(arAction.distanceToAction)}m
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/* 실내 모드 표시 */}
+      {isIndoor && (
+        <div className="absolute top-4 left-4 bg-blue-600 text-white px-4 py-2 rounded-lg z-30 flex items-center gap-2">
+          <span>🏢</span>
+          <span className="font-semibold">실내 모드</span>
+        </div>
+      )}
+      
+      {/* 인식된 POI 표시 */}
+      {recognizedPois.length > 0 && isIndoor && (
+        <div className="absolute top-20 right-4 bg-gray-800/90 text-white p-4 rounded-lg z-30 max-w-xs max-h-64 overflow-y-auto">
+          <h3 className="font-bold mb-2 text-sm">주변 장소</h3>
+          {recognizedPois.slice(0, 5).map((poi) => (
+            <div key={poi.id} className="mb-2 p-2 bg-gray-700 rounded text-sm">
+              <div className="font-medium">{poi.name}</div>
+              <div className="text-xs text-gray-400">{poi.type}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      
       {/* 경로 단계 안내 (카메라 위 오버레이) */}
-      {useGoogleMaps && (
+      {useGoogleMaps && !arAction && (
         <RouteStepIndicator 
           currentStep={currentStep}
           nextStep={nextStep}

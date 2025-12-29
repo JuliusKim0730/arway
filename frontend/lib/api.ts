@@ -62,7 +62,8 @@ export async function fetchDestinations(search?: string): Promise<Destination[]>
       params.append('search', search.trim());
     }
     
-    const url = `/api/v1/destinations/${params.toString() ? `?${params.toString()}` : ''}`;
+    // URL 구성 수정: destinations/ 뒤에 슬래시 제거
+    const url = `/api/v1/destinations${params.toString() ? `?${params.toString()}` : ''}`;
     return await apiGet<Destination[]>(url, {
       maxRetries: 3,
       timeout: 10000,

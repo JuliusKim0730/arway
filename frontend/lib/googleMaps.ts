@@ -40,9 +40,19 @@ export async function getDirections(
     throw new Error('Google Maps API 키가 설정되지 않았습니다.');
   }
 
-  // Google Maps JavaScript API가 로드되었는지 확인
+  // Google Maps JavaScript API가 로드되었는지 확인 (재시도 로직 포함)
   if (typeof window === 'undefined' || !window.google || !window.google.maps) {
-    throw new Error('Google Maps JavaScript API가 로드되지 않았습니다.');
+    // 최대 3초 대기 후 재확인
+    for (let i = 0; i < 6; i++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (window.google && window.google.maps) {
+        break;
+      }
+    }
+    
+    if (!window.google || !window.google.maps) {
+      throw new Error('Google Maps JavaScript API가 로드되지 않았습니다. 페이지를 새로고침하거나 잠시 후 다시 시도해주세요.');
+    }
   }
 
   return new Promise((resolve, reject) => {
@@ -237,9 +247,19 @@ export async function searchPlaces(
     throw new Error('Google Maps API 키가 설정되지 않았습니다.');
   }
 
-  // Google Maps JavaScript API가 로드되었는지 확인
+  // Google Maps JavaScript API가 로드되었는지 확인 (재시도 로직 포함)
   if (typeof window === 'undefined' || !window.google || !window.google.maps || !window.google.maps.places) {
-    throw new Error('Google Maps JavaScript API 또는 Places 라이브러리가 로드되지 않았습니다.');
+    // 최대 3초 대기 후 재확인
+    for (let i = 0; i < 6; i++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (window.google && window.google.maps && window.google.maps.places) {
+        break;
+      }
+    }
+    
+    if (!window.google || !window.google.maps || !window.google.maps.places) {
+      throw new Error('Google Maps JavaScript API 또는 Places 라이브러리가 로드되지 않았습니다. 페이지를 새로고침하거나 잠시 후 다시 시도해주세요.');
+    }
   }
 
   // JavaScript API 사용 (CORS 문제 없음)
