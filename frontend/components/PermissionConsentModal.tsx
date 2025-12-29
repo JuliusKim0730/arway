@@ -50,23 +50,45 @@ export function PermissionConsentModal({ onConsent, onSkip }: PermissionConsentM
     setIsRequesting(true);
     try {
       await new Promise<void>((resolve, reject) => {
+        // 타임아웃을 더 길게 설정 (실내 환경 고려)
+        const timeout = setTimeout(() => {
+          console.warn('위치 권한 요청 타임아웃 (실내 환경일 수 있음)');
+          // 타임아웃이 발생해도 권한은 요청됨 (사용자가 허용했을 수 있음)
+          setLocationPermission('prompt'); // 'prompt' 상태 유지하여 사용자가 수동으로 허용 가능하도록
+          setIsRequesting(false);
+          resolve();
+        }, 15000); // 15초로 증가
+
         navigator.geolocation.getCurrentPosition(
-          () => {
+          (position) => {
+            clearTimeout(timeout);
             setLocationPermission('granted');
+            setIsRequesting(false);
             resolve();
           },
           (error) => {
+            clearTimeout(timeout);
             if (error.code === error.PERMISSION_DENIED) {
               setLocationPermission('denied');
+            } else if (error.code === error.TIMEOUT) {
+              console.warn('위치 정보 요청 타임아웃 (실내 환경일 수 있음)');
+              setLocationPermission('prompt'); // 타임아웃 시에도 prompt 상태 유지
+            } else {
+              console.warn('위치 정보 요청 실패:', error.message);
+              setLocationPermission('prompt');
             }
-            reject(error);
+            setIsRequesting(false);
+            resolve(); // reject 대신 resolve로 변경하여 UI가 멈추지 않도록
           },
-          { timeout: 5000 }
+          { 
+            timeout: 15000, // 15초로 증가
+            enableHighAccuracy: true,
+            maximumAge: 60000 // 1분간 캐시된 위치 허용
+          }
         );
       });
     } catch (error) {
       console.warn('위치 권한 요청 실패:', error);
-    } finally {
       setIsRequesting(false);
     }
   };

@@ -14,72 +14,107 @@ export default function Home() {
   // 권한 확인 및 모달 표시
   useEffect(() => {
     const checkPermissions = async () => {
-      // 로컬 스토리지에서 권한 동의 여부 확인
-      const hasConsented = localStorage.getItem('permissions_consented') === 'true';
-      
-      if (hasConsented) {
-        setPermissionsGranted(true);
-        return;
-      }
-
-      // 권한 상태 확인
-      let locationGranted = false;
-      let cameraGranted = false;
-
-      if (navigator.permissions && navigator.permissions.query) {
-        try {
-          const locationStatus = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
-          locationGranted = locationStatus.state === 'granted';
-        } catch (e) {
-          // 지원하지 않는 브라우저
+      try {
+        // 로컬 스토리지에서 권한 동의 여부 확인
+        const hasConsented = localStorage.getItem('permissions_consented') === 'true';
+        
+        if (hasConsented) {
+          setPermissionsGranted(true);
+          return;
         }
 
-        try {
-          const cameraStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
-          cameraGranted = cameraStatus.state === 'granted';
-        } catch (e) {
-          // 지원하지 않는 브라우저
-        }
-      }
+        // 권한 상태 확인 (타임아웃 설정)
+        let locationGranted = false;
+        let cameraGranted = false;
 
-      // 둘 다 허용되지 않았으면 모달 표시
-      if (!locationGranted || !cameraGranted) {
+        // 타임아웃 설정 (5초)
+        const permissionCheckPromise = new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            console.warn('권한 확인 타임아웃 - 기본값으로 진행');
+            resolve();
+          }, 5000);
+
+          (async () => {
+            if (navigator.permissions && navigator.permissions.query) {
+              try {
+                const locationStatus = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+                locationGranted = locationStatus.state === 'granted';
+              } catch (e) {
+                console.warn('위치 권한 확인 실패:', e);
+              }
+
+              try {
+                const cameraStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
+                cameraGranted = cameraStatus.state === 'granted';
+              } catch (e) {
+                console.warn('카메라 권한 확인 실패:', e);
+              }
+            }
+            clearTimeout(timeout);
+            resolve();
+          })();
+        });
+
+        await permissionCheckPromise;
+
+        // 둘 다 허용되지 않았으면 모달 표시
+        if (!locationGranted || !cameraGranted) {
+          setShowPermissionModal(true);
+        } else {
+          setPermissionsGranted(true);
+          localStorage.setItem('permissions_consented', 'true');
+        }
+      } catch (error) {
+        console.error('권한 확인 중 오류:', error);
+        // 오류 발생 시 모달 표시
         setShowPermissionModal(true);
-      } else {
-        setPermissionsGranted(true);
-        localStorage.setItem('permissions_consented', 'true');
       }
     };
 
     checkPermissions();
   }, []);
 
-  // NextAuth 동적 로딩
+  // NextAuth 동적 로딩 (권한 동의와 독립적으로 실행)
   useEffect(() => {
-    if (!permissionsGranted) return; // 권한 동의 전에는 실행하지 않음
-
     const initAuth = async () => {
       try {
-        // NextAuth가 제대로 설정되어 있는지 확인
-        const response = await fetch('/api/auth/session');
-        if (response.ok) {
-          const session = await response.json();
-          if (session?.user) {
-            // 이미 로그인된 경우 AR 네비게이션으로 이동
-            router.push('/ar-nav');
-            return;
+        // NextAuth가 제대로 설정되어 있는지 확인 (타임아웃 설정)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        try {
+          const response = await fetch('/api/auth/session', {
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            const session = await response.json();
+            if (session?.user) {
+              // 이미 로그인된 경우 AR 네비게이션으로 이동
+              router.push('/ar-nav');
+              return;
+            }
+          }
+        } catch (error: any) {
+          clearTimeout(timeoutId);
+          if (error.name !== 'AbortError') {
+            console.warn('NextAuth 초기화 실패:', error);
           }
         }
       } catch (error) {
-        console.warn('NextAuth 초기화 실패:', error);
+        console.warn('NextAuth 초기화 중 오류:', error);
       }
       setAuthReady(true);
     };
 
-    // 2초 후에 인증 상태 확인 (NextAuth 초기화 대기)
-    const timer = setTimeout(initAuth, 2000);
-    return () => clearTimeout(timer);
-  }, [router, permissionsGranted]);
+    // 권한 모달이 표시되지 않았거나 권한이 허용된 경우에만 실행
+    if (!showPermissionModal || permissionsGranted) {
+      // 1초 후에 인증 상태 확인 (NextAuth 초기화 대기)
+      const timer = setTimeout(initAuth, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [router, permissionsGranted, showPermissionModal]);
 
   // Google 로그인 핸들러
   const handleLogin = async () => {
@@ -87,20 +122,49 @@ export default function Home() {
     try {
       // NextAuth signIn 사용
       const { signIn } = await import('next-auth/react');
-      await signIn('google', {
+      
+      // 타임아웃 설정 (10초)
+      const loginPromise = signIn('google', {
         callbackUrl: '/ar-nav',
         redirect: true,
       });
-    } catch (error) {
+      
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('로그인 타임아웃')), 10000);
+      });
+      
+      await Promise.race([loginPromise, timeoutPromise]);
+    } catch (error: any) {
       console.error('로그인 오류:', error);
       setLoading(false);
-      // 로그인 실패 시 직접 AR 네비게이션으로 이동
+      
+      // 타임아웃이거나 네트워크 오류인 경우
+      if (error.message === '로그인 타임아웃' || error.message?.includes('network')) {
+        alert('로그인 요청이 시간 초과되었습니다. 네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요.');
+      } else {
+        // 기타 오류는 조용히 처리하고 AR 네비게이션으로 이동
+        console.warn('로그인 실패, 게스트 모드로 진행');
+      }
+      
+      // 로그인 실패 시에도 AR 네비게이션으로 이동 (게스트 모드)
       router.push('/ar-nav');
     }
   };
 
-  // 초기 로딩 중
-  if (!authReady) {
+  // 최대 3초 후에는 강제로 메인 화면 표시 (무한 로딩 방지)
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!authReady && !showPermissionModal) {
+        console.warn('초기화 타임아웃 - 메인 화면으로 전환');
+        setAuthReady(true);
+        setPermissionsGranted(true); // 권한 확인을 건너뛰고 진행
+      }
+    }, 3000);
+    return () => clearTimeout(timeout);
+  }, [authReady, showPermissionModal]);
+
+  // 초기 로딩 중 (권한 모달이 표시되지 않은 경우에만)
+  if (!authReady && !showPermissionModal) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900">
         <div className="text-center space-y-6 px-4">
@@ -113,7 +177,11 @@ export default function Home() {
           {/* 즉시 우회 버튼 */}
           <div className="mt-4">
             <button
-              onClick={() => router.push('/ar-nav')}
+              onClick={() => {
+                setPermissionsGranted(true);
+                setAuthReady(true);
+                router.push('/ar-nav');
+              }}
               className="text-blue-400 hover:text-blue-300 underline text-sm"
             >
               바로 시작하기 →
@@ -261,3 +329,4 @@ export default function Home() {
     </main>
   );
 }
+
